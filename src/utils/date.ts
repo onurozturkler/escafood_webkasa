@@ -29,3 +29,11 @@ export function diffInDays(fromIso: string, toIso: string): number {
   const diff = to.getTime() - from.getTime();
   return Math.round(diff / (1000 * 60 * 60 * 24));
 }
+
+export function addMonths(iso: string, months: number): string {
+  const [y, m, d] = iso.split('-').map((part) => parseInt(part, 10));
+  const date = new Date(Date.UTC(y || 1970, (m || 1) - 1, d || 1));
+  date.setUTCMonth(date.getUTCMonth() + months);
+  const isoString = date.toISOString().slice(0, 10);
+  return isoString;
+}

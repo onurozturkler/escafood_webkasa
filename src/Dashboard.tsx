@@ -14,6 +14,7 @@ import { isoToDisplay, todayIso, getWeekdayTr, diffInDays } from './utils/date';
 import { formatTl } from './utils/money';
 import { getNextBelgeNo } from './utils/documentNo';
 import { generateId } from './utils/id';
+import { buildLoanSchedule } from './utils/loan';
 import NakitGiris, { NakitGirisFormValues } from './forms/NakitGiris';
 import NakitCikis, { NakitCikisFormValues } from './forms/NakitCikis';
 import BankaNakitGiris, { BankaNakitGirisFormValues } from './forms/BankaNakitGiris';
@@ -103,10 +104,17 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
 
   useEffect(() => {
     const payments: UpcomingPayment[] = [];
+    const today = todayIso();
+
     creditCards
       .filter((c) => c.sonEkstreBorcu > 0)
       .forEach((card) => {
-        const dueIso = todayIso();
+        const todayDate = new Date(`${today}T00:00:00Z`);
+        const year = todayDate.getUTCFullYear();
+        const month = todayDate.getUTCMonth();
+        const dueThisMonth = new Date(Date.UTC(year, month, card.sonOdemeGunu));
+        const dueDate = dueThisMonth >= todayDate ? dueThisMonth : new Date(Date.UTC(year, month + 1, card.sonOdemeGunu));
+        const dueIso = dueDate.toISOString().slice(0, 10);
         payments.push({
           id: `cc-${card.id}`,
           category: 'KREDI_KARTI',
@@ -115,24 +123,28 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           dueDateIso: dueIso,
           dueDateDisplay: isoToDisplay(dueIso),
           amount: card.sonEkstreBorcu,
-          daysLeft: diffInDays(todayIso(), dueIso),
+          daysLeft: diffInDays(today, dueIso),
         });
       });
+
     loans
       .filter((l) => l.aktifMi)
       .forEach((loan) => {
-        const dueIso = loan.ilkTaksitTarihi;
+        const schedule = buildLoanSchedule(loan);
+        const nextInstallment = schedule.find((inst) => inst.dateIso >= today) || schedule[schedule.length - 1];
+        if (!nextInstallment) return;
         payments.push({
           id: `loan-${loan.id}`,
           category: 'KREDI',
           bankName: banks.find((b) => b.id === loan.bankaId)?.bankaAdi || '-',
           name: loan.krediAdi,
-          dueDateIso: dueIso,
-          dueDateDisplay: isoToDisplay(dueIso),
-          amount: loan.toplamKrediTutari / loan.vadeSayisi,
-          daysLeft: diffInDays(todayIso(), dueIso),
+          dueDateIso: nextInstallment.dateIso,
+          dueDateDisplay: isoToDisplay(nextInstallment.dateIso),
+          amount: nextInstallment.totalPayment,
+          daysLeft: diffInDays(today, nextInstallment.dateIso),
         });
       });
+
     cheques
       .filter((c) => ['KASADA', 'BANKADA_TAHSILDE', 'ODEMEDE'].includes(c.status))
       .forEach((cek) => {
@@ -144,7 +156,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           dueDateIso: cek.vadeTarihi,
           dueDateDisplay: isoToDisplay(cek.vadeTarihi),
           amount: cek.tutar,
-          daysLeft: diffInDays(todayIso(), cek.vadeTarihi),
+          daysLeft: diffInDays(today, cek.vadeTarihi),
         });
       });
     setUpcomingPayments(payments);
@@ -309,6 +321,23 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
       addTransactions([outTx, inTx]);
     } else {
       const documentNo = getNextBelgeNo('BNK-CKS', values.islemTarihiIso, dailyTransactions);
+      let tutar = values.tutar;
+      let aciklama = values.aciklama || '';
+
+      if (values.islemTuru === 'KREDI_TAKSIDI' && values.krediId) {
+        const loan = loans.find((l) => l.id === values.krediId);
+        if (loan) {
+          const schedule = buildLoanSchedule(loan);
+          const today = values.islemTarihiIso || todayIso();
+          const nextInstallment = schedule.find((inst) => inst.dateIso >= today) || schedule[schedule.length - 1];
+          if (nextInstallment) {
+            tutar = nextInstallment.totalPayment;
+            if (!aciklama) {
+              aciklama = `${loan.krediAdi} - ${nextInstallment.index}. taksit`;
+            }
+          }
+        }
+      }
       const tx: DailyTransaction = {
         id: generateId(),
         isoDate: values.islemTarihiIso,
@@ -317,13 +346,13 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         type: 'Banka Çıkış',
         source: values.islemTuru,
         counterparty: values.muhatap || 'Diğer',
-        description: values.aciklama || '',
+        description: aciklama,
         incoming: 0,
         outgoing: 0,
         balanceAfter: 0,
         bankId: values.bankaId,
-        bankDelta: -values.tutar,
-        displayOutgoing: values.tutar,
+        bankDelta: -tutar,
+        displayOutgoing: tutar,
       };
       if (values.islemTuru === 'CEK_ODEME' && values.cekId) {
         setCheques((prev) => prev.map((c) => (c.id === values.cekId ? { ...c, status: 'ODEME_YAPILDI' } : c)));
