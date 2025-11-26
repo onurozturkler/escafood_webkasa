@@ -51,6 +51,8 @@ const tabs: { key: SettingsTabKey; label: string }[] = [
   { key: 'GLOBAL', label: 'Global Ayarlar' },
 ];
 
+const CSV_DELIMITER = ';';
+
 function nextCode(items: { kod: string }[], prefix: string) {
   const max = items.reduce((acc, item) => {
     const num = parseInt(item.kod.replace(`${prefix}-`, ''), 10);
@@ -407,11 +409,11 @@ function CustomerTab({ customers, setCustomers, onDirty }: { customers: Customer
 
   const downloadCsv = () => {
     const lines = [
-      'kod,ad,aktifMi',
-      ...customers.map((c) => [c.kod, c.ad, c.aktifMi ? 'true' : 'false'].join(',')),
+      ['kod', 'ad', 'aktifMi'].join(CSV_DELIMITER),
+      ...customers.map((c) => [c.kod, c.ad, c.aktifMi ? 'true' : 'false'].join(CSV_DELIMITER)),
     ];
-    const bom = "\uFEFF";
-    const csvContent = bom + lines.join("\n");
+    const bom = '\uFEFF';
+    const csvContent = bom + lines.join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -429,8 +431,8 @@ function CustomerTab({ customers, setCustomers, onDirty }: { customers: Customer
       const lines = cleanText.split(/\r?\n/).filter((line) => line.trim().length > 0);
       if (!lines.length) return;
 
-      const header = lines[0].split(',').map((h) => h.trim().toLowerCase());
-      if (header[0] !== 'kod' || header[1] !== 'ad' || header[2] !== 'aktifmi') {
+      const header = lines[0].split(/[;,]/).map((h) => h.trim().toLowerCase());
+      if (header.length < 3 || header[0] !== 'kod' || header[1] !== 'ad' || header[2] !== 'aktifmi') {
         alert('Geçersiz CSV formatı. Başlıklar kod,ad,aktifMi olmalıdır.');
         return;
       }
@@ -439,7 +441,7 @@ function CustomerTab({ customers, setCustomers, onDirty }: { customers: Customer
       const getNext = () => nextCode([...customers, ...parsed], 'MUST');
 
       lines.slice(1).forEach((line) => {
-        const cols = line.split(',');
+        const cols = line.split(/[;,]/);
         const kodRaw = cols[0]?.trim() ?? '';
         const adRaw = cols[1]?.trim() ?? '';
         const aktifMiRaw = cols[2]?.trim() ?? '';
@@ -569,11 +571,11 @@ function SupplierTab({ suppliers, setSuppliers, onDirty }: { suppliers: Supplier
 
   const downloadCsv = () => {
     const lines = [
-      'kod,ad,aktifMi',
-      ...suppliers.map((s) => [s.kod, s.ad, s.aktifMi ? 'true' : 'false'].join(',')),
+      ['kod', 'ad', 'aktifMi'].join(CSV_DELIMITER),
+      ...suppliers.map((s) => [s.kod, s.ad, s.aktifMi ? 'true' : 'false'].join(CSV_DELIMITER)),
     ];
-    const bom = "\uFEFF";
-    const csvContent = bom + lines.join("\n");
+    const bom = '\uFEFF';
+    const csvContent = bom + lines.join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -590,8 +592,8 @@ function SupplierTab({ suppliers, setSuppliers, onDirty }: { suppliers: Supplier
       const cleanText = rawText.replace(/^\uFEFF/, '');
       const lines = cleanText.split(/\r?\n/).filter((line) => line.trim().length > 0);
       if (!lines.length) return;
-      const header = lines[0].split(',').map((h) => h.trim().toLowerCase());
-      if (header[0] !== 'kod' || header[1] !== 'ad' || header[2] !== 'aktifmi') {
+      const header = lines[0].split(/[;,]/).map((h) => h.trim().toLowerCase());
+      if (header.length < 3 || header[0] !== 'kod' || header[1] !== 'ad' || header[2] !== 'aktifmi') {
         alert('Geçersiz CSV formatı. Başlıklar kod,ad,aktifMi olmalıdır.');
         return;
       }
@@ -600,7 +602,7 @@ function SupplierTab({ suppliers, setSuppliers, onDirty }: { suppliers: Supplier
       const getNext = () => nextCode([...suppliers, ...parsed], 'TDRK');
 
       lines.slice(1).forEach((line) => {
-        const cols = line.split(',');
+        const cols = line.split(/[;,]/);
         const kodRaw = cols[0]?.trim() ?? '';
         const adRaw = cols[1]?.trim() ?? '';
         const aktifMiRaw = cols[2]?.trim() ?? '';
