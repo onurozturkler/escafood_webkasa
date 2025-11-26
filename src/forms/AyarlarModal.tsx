@@ -410,8 +410,8 @@ function CustomerTab({ customers, setCustomers, onDirty }: { customers: Customer
       'kod,ad,aktifMi',
       ...customers.map((c) => [c.kod, c.ad, c.aktifMi ? 'true' : 'false'].join(',')),
     ];
-    const bom = '\uFEFF';
-    const csvContent = bom + lines.join('\n');
+    const bom = "\uFEFF";
+    const csvContent = bom + lines.join("\n");
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -572,8 +572,8 @@ function SupplierTab({ suppliers, setSuppliers, onDirty }: { suppliers: Supplier
       'kod,ad,aktifMi',
       ...suppliers.map((s) => [s.kod, s.ad, s.aktifMi ? 'true' : 'false'].join(',')),
     ];
-    const bom = '\uFEFF';
-    const csvContent = bom + lines.join('\n');
+    const bom = "\uFEFF";
+    const csvContent = bom + lines.join("\n");
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
