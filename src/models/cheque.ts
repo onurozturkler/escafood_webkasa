@@ -4,17 +4,22 @@ export type ChequeStatus =
   | 'ODEMEDE'
   | 'TAHSIL_OLDU'
   | 'ODEME_YAPILDI'
-  | 'KARŞILIKSIZ'
-  | 'IPTAL';
+  | 'KARSILIKSIZ'
+  | 'IPTAL'
+  | 'CIKMIS';
 
 export interface Cheque {
   id: string;
   cekNo: string;
-  bankaAdi: string;
-  duzenleyici: string;
-  lehdar: string;
+  bankaId?: string;
+  bankaAdi?: string;
   tutar: number;
   vadeTarihi: string;
+  duzenleyen: string;
+  lehtar: string;
+  musteriId?: string;
+  tedarikciId?: string;
   status: ChequeStatus;
   kasaMi: boolean;
+  aciklama?: string;
 }

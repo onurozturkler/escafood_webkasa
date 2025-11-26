@@ -87,10 +87,34 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
   const [openSection, setOpenSection] = useState<Record<string, boolean>>({});
   const [activeView, setActiveView] = useState<ActiveView>('DASHBOARD');
 
-  const [banks, setBanks] = useState<BankMaster[]>([
-    { id: generateId(), bankaAdi: 'Yapı Kredi', kodu: 'YKB', hesapAdi: 'YKB-Vadesiz TL', acilisBakiyesi: 0, aktifMi: true },
-    { id: generateId(), bankaAdi: 'Enpara', kodu: 'ENPR', hesapAdi: 'ENPR-Vadesiz TL', acilisBakiyesi: 0, aktifMi: true },
-    { id: generateId(), bankaAdi: 'Halkbank', kodu: 'HALK', hesapAdi: 'HALK-Vadesiz TL', acilisBakiyesi: 0, aktifMi: true },
+const [banks, setBanks] = useState<BankMaster[]>([
+    {
+      id: generateId(),
+      bankaAdi: 'Yapı Kredi',
+      kodu: 'YKB',
+      hesapAdi: 'YKB-Vadesiz TL',
+      acilisBakiyesi: 0,
+      aktifMi: true,
+      cekKarnesiVarMi: true,
+    },
+    {
+      id: generateId(),
+      bankaAdi: 'Enpara',
+      kodu: 'ENPR',
+      hesapAdi: 'ENPR-Vadesiz TL',
+      acilisBakiyesi: 0,
+      aktifMi: true,
+      cekKarnesiVarMi: true,
+    },
+    {
+      id: generateId(),
+      bankaAdi: 'Halkbank',
+      kodu: 'HALK',
+      hesapAdi: 'HALK-Vadesiz TL',
+      acilisBakiyesi: 0,
+      aktifMi: true,
+      cekKarnesiVarMi: false,
+    },
   ]);
   const [posTerminals, setPosTerminals] = useState<PosTerminal[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -105,6 +129,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
   const [cheques, setCheques] = useState<Cheque[]>([]);
   const [dailyTransactions, setDailyTransactions] = useState<DailyTransaction[]>([]);
   const [upcomingPayments, setUpcomingPayments] = useState<UpcomingPayment[]>([]);
+  const [cekInitialTab, setCekInitialTab] = useState<'GIRIS' | 'CIKIS' | 'YENI' | 'RAPOR'>('GIRIS');
 
   useEffect(() => {
     const payments: UpcomingPayment[] = [];
@@ -155,8 +180,8 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         payments.push({
           id: `cek-${cek.id}`,
           category: 'CEK',
-          bankName: cek.bankaAdi,
-          name: cek.lehdar,
+          bankName: cek.bankaAdi || '-',
+          name: cek.lehtar,
           dueDateIso: cek.vadeTarihi,
           dueDateDisplay: isoToDisplay(cek.vadeTarihi),
           amount: cek.tutar,
@@ -346,6 +371,8 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
       const nowIso = new Date().toISOString();
       let tutar = values.tutar;
       let aciklama = values.aciklama || '';
+      let counterparty = values.muhatap || 'Diğer';
+      let description = aciklama;
 
       if (values.islemTuru === 'KREDI_TAKSIDI' && values.krediId) {
         const loan = loans.find((l) => l.id === values.krediId);
@@ -358,18 +385,33 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
             if (!aciklama) {
               aciklama = `${loan.krediAdi} - ${nextInstallment.index}. taksit`;
             }
+            description = aciklama;
           }
         }
       }
+
+      if (values.islemTuru === 'CEK_ODEME' && values.cekId) {
+        const cheque = cheques.find((c) => c.id === values.cekId);
+        if (cheque) {
+          tutar = cheque.tutar;
+          const supplier = cheque.tedarikciId ? suppliers.find((s) => s.id === cheque.tedarikciId) : undefined;
+          counterparty = supplier ? `${supplier.kod} - ${supplier.ad}` : cheque.lehtar || counterparty;
+          description = `Çek No: ${cheque.cekNo}${values.aciklama ? ` – ${values.aciklama}` : ''}`;
+          setCheques((prev) =>
+            prev.map((c) => (c.id === values.cekId ? { ...c, status: 'ODEME_YAPILDI', kasaMi: false } : c))
+          );
+        }
+      }
+
       const tx: DailyTransaction = {
         id: generateId(),
         isoDate: values.islemTarihiIso,
         displayDate: isoToDisplay(values.islemTarihiIso),
         documentNo,
-        type: 'Banka Çıkış',
+        type: values.islemTuru === 'CEK_ODEME' ? 'Banka Çıkış - Çek Ödemesi' : 'Banka Çıkış',
         source: values.islemTuru,
-        counterparty: values.muhatap || 'Diğer',
-        description: aciklama,
+        counterparty,
+        description,
         incoming: 0,
         outgoing: 0,
         balanceAfter: 0,
@@ -379,9 +421,6 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         createdAtIso: nowIso,
         createdBy: currentUser.email,
       };
-      if (values.islemTuru === 'CEK_ODEME' && values.cekId) {
-        setCheques((prev) => prev.map((c) => (c.id === values.cekId ? { ...c, status: 'ODEME_YAPILDI' } : c)));
-      }
       addTransactions([tx]);
     }
     setOpenForm(null);
@@ -428,6 +467,9 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
 
   const handleCekIslemSaved = (payload: CekIslemPayload) => {
     setCheques(payload.updatedCheques);
+    if (payload.transaction) {
+      addTransactions([payload.transaction]);
+    }
     setOpenForm(null);
   };
 
@@ -542,6 +584,12 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
                         if (item.label === 'Çek/Senet Modülü' || item.label === 'Diğer Raporlar') {
                           alert('Henüz uygulanmadı');
                           return;
+                        }
+                        if (section.key === 'cek') {
+                          if (item.label === 'Kasaya Çek Girişi') setCekInitialTab('GIRIS');
+                          if (item.label === 'Kasadan Çek Çıkışı') setCekInitialTab('CIKIS');
+                          if (item.label === 'Yeni Düzenlenen Çek') setCekInitialTab('YENI');
+                          if (item.label === 'Tüm Çekler Raporu') setCekInitialTab('RAPOR');
                         }
                         if (item.tab) setSettingsTab(item.tab as SettingsTabKey);
                         if (item.form) setOpenForm(item.form as OpenFormKey);
@@ -766,6 +814,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         onSaved={handleBankaNakitCikisSaved}
         currentUserEmail={currentUser.email}
         banks={banks}
+        cheques={cheques}
       />
       <PosTahsilat
         isOpen={openForm === 'POS_TAHSILAT'}
@@ -795,6 +844,11 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         onClose={() => setOpenForm(null)}
         onSaved={handleCekIslemSaved}
         cheques={cheques}
+        customers={customers}
+        suppliers={suppliers}
+        banks={banks}
+        currentUserEmail={currentUser.email}
+        initialTab={cekInitialTab}
       />
       <AyarlarModal
         isOpen={openForm === 'AYARLAR'}

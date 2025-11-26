@@ -6,4 +6,5 @@ export interface BankMaster {
   iban?: string;
   acilisBakiyesi: number;
   aktifMi: boolean;
+  cekKarnesiVarMi?: boolean;
 }

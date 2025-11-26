@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { BankMaster } from '../models/bank';
-import { formatTl, parseTl } from '../utils/money';
+import { Cheque } from '../models/cheque';
+import { formatTl, formatTlPlain, parseTl } from '../utils/money';
 import { isoToDisplay, todayIso } from '../utils/date';
 
 export type BankaNakitCikisTuru =
@@ -35,6 +36,7 @@ interface Props {
   onSaved: (values: BankaNakitCikisFormValues) => void;
   currentUserEmail: string;
   banks: BankMaster[];
+  cheques: Cheque[];
 }
 
 const turLabels: Record<BankaNakitCikisTuru, string> = {
@@ -56,7 +58,7 @@ const faturaOptions: { value: FaturaMuhatap; label: string }[] = [
   { value: 'DIGER', label: 'Diğer' },
 ];
 
-export default function BankaNakitCikis({ isOpen, onClose, onSaved, currentUserEmail, banks }: Props) {
+export default function BankaNakitCikis({ isOpen, onClose, onSaved, currentUserEmail, banks, cheques }: Props) {
   const [islemTarihiIso, setIslemTarihiIso] = useState(todayIso());
   const [bankaId, setBankaId] = useState('');
   const [hedefBankaId, setHedefBankaId] = useState('');
@@ -66,6 +68,7 @@ export default function BankaNakitCikis({ isOpen, onClose, onSaved, currentUserE
   const [aciklama, setAciklama] = useState('');
   const [tutarText, setTutarText] = useState('');
   const [dirty, setDirty] = useState(false);
+  const [selectedChequeId, setSelectedChequeId] = useState('');
 
   useEffect(() => {
     if (isOpen) {
@@ -78,12 +81,17 @@ export default function BankaNakitCikis({ isOpen, onClose, onSaved, currentUserE
       setAciklama('');
       setTutarText('');
       setDirty(false);
+      setSelectedChequeId('');
     }
   }, [isOpen]);
 
   const muhatapRequired = useMemo(() => islemTuru === 'MAAS_ODEME', [islemTuru]);
   const faturaRequired = useMemo(() => islemTuru === 'FATURA_ODEME', [islemTuru]);
   const hedefRequired = useMemo(() => islemTuru === 'VIRMAN', [islemTuru]);
+  const eligibleCheques = useMemo(
+    () => cheques.filter((c) => c.status === 'ODEMEDE' || c.status === 'BANKADA_TAHSILDE'),
+    [cheques]
+  );
 
   const handleClose = () => {
     if (dirty && !window.confirm('Kaydedilmemiş bilgiler var. Kapatmak istiyor musunuz?')) return;
@@ -91,12 +99,18 @@ export default function BankaNakitCikis({ isOpen, onClose, onSaved, currentUserE
   };
 
   const handleSave = () => {
-    const tutar = parseTl(tutarText || '0') || 0;
+    const today = todayIso();
+    let tutar = parseTl(tutarText || '0') || 0;
+    const selectedCheque = eligibleCheques.find((c) => c.id === selectedChequeId);
+    if (islemTuru === 'CEK_ODEME') {
+      if (!selectedCheque) return;
+      tutar = selectedCheque.tutar;
+      setTutarText(formatTlPlain(selectedCheque.tutar));
+    }
     if (!islemTarihiIso || !bankaId || !islemTuru || tutar <= 0) return;
     if (muhatapRequired && muhatap.trim().length < 3) return;
     if (faturaRequired && !faturaMuhatabi) return;
     if (hedefRequired && !hedefBankaId) return;
-    const today = todayIso();
     if (islemTarihiIso > today) {
       alert('Gelecek tarihli işlem kaydedilemez.');
       return;
@@ -110,7 +124,7 @@ export default function BankaNakitCikis({ isOpen, onClose, onSaved, currentUserE
       `Banka: ${bankaName}`,
       hedefName ? `Hedef Banka: ${hedefName}` : null,
       `İşlem Türü: ${turLabels[islemTuru]}`,
-      `Muhatap: ${muhatap || '-'}`,
+      `Muhatap: ${islemTuru === 'CEK_ODEME' ? selectedCheque?.lehtar || '-' : muhatap || '-'}`,
       `Tutar: ${formatTl(tutar)}`,
       `Açıklama: ${aciklama || '-'}`,
     ].filter(Boolean) as string[];
@@ -123,13 +137,13 @@ export default function BankaNakitCikis({ isOpen, onClose, onSaved, currentUserE
       bankaId,
       hedefBankaId: hedefRequired ? hedefBankaId : undefined,
       islemTuru,
-      muhatap: muhatapRequired || muhatap ? muhatap : undefined,
+      muhatap: islemTuru === 'CEK_ODEME' ? selectedCheque?.lehtar || undefined : muhatapRequired || muhatap ? muhatap : undefined,
       faturaMuhatabi: faturaRequired ? faturaMuhatabi : undefined,
       aciklama: aciklama || undefined,
       tutar,
       kaydedenKullanici: currentUserEmail,
       krediId: null,
-      cekId: null,
+      cekId: islemTuru === 'CEK_ODEME' ? selectedChequeId : null,
     });
   };
 
@@ -178,6 +192,7 @@ export default function BankaNakitCikis({ isOpen, onClose, onSaved, currentUserE
               onChange={(e) => {
                 setIslemTuru(e.target.value as BankaNakitCikisTuru);
                 setDirty(true);
+                setSelectedChequeId('');
               }}
             >
               {Object.entries(turLabels).map(([value, label]) => (
@@ -208,17 +223,40 @@ export default function BankaNakitCikis({ isOpen, onClose, onSaved, currentUserE
               </select>
             </div>
           )}
-          <div className="space-y-2">
-            <label>Muhatap</label>
-            <input
-              value={muhatap}
-              onChange={(e) => {
-                setMuhatap(e.target.value);
-                setDirty(true);
-              }}
-              placeholder="Muhatap"
-            />
-          </div>
+          {islemTuru !== 'CEK_ODEME' && (
+            <div className="space-y-2">
+              <label>Muhatap</label>
+              <input
+                value={muhatap}
+                onChange={(e) => {
+                  setMuhatap(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder="Muhatap"
+              />
+            </div>
+          )}
+          {islemTuru === 'CEK_ODEME' && (
+            <div className="space-y-2">
+              <label>Ödenecek Çek</label>
+              <select
+                value={selectedChequeId}
+                onChange={(e) => {
+                  setSelectedChequeId(e.target.value);
+                  const cek = eligibleCheques.find((c) => c.id === e.target.value);
+                  if (cek) setTutarText(formatTlPlain(cek.tutar));
+                  setDirty(true);
+                }}
+              >
+                <option value="">Seçiniz</option>
+                {eligibleCheques.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {`${c.cekNo} - ${c.lehtar} (${formatTl(c.tutar)})`}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           {faturaRequired && (
             <div className="space-y-2">
               <label>Fatura Muhatabı</label>
