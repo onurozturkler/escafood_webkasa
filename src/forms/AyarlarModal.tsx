@@ -424,10 +424,11 @@ function CustomerTab({ customers, setCustomers, onDirty }: { customers: Customer
   const uploadCsv = (file: File) => {
     const reader = new FileReader();
     reader.onload = () => {
-      const text = String(reader.result || '');
-      const cleanText = text.replace(/^\uFEFF/, '');
+      const rawText = (reader.result as string) || '';
+      const cleanText = rawText.replace(/^\uFEFF/, '');
       const lines = cleanText.split(/\r?\n/).filter((line) => line.trim().length > 0);
       if (!lines.length) return;
+
       const header = lines[0].split(',').map((h) => h.trim().toLowerCase());
       if (header[0] !== 'kod' || header[1] !== 'ad' || header[2] !== 'aktifmi') {
         alert('Geçersiz CSV formatı. Başlıklar kod,ad,aktifMi olmalıdır.');
@@ -585,8 +586,8 @@ function SupplierTab({ suppliers, setSuppliers, onDirty }: { suppliers: Supplier
   const uploadCsv = (file: File) => {
     const reader = new FileReader();
     reader.onload = () => {
-      const text = String(reader.result || '');
-      const cleanText = text.replace(/^\uFEFF/, '');
+      const rawText = (reader.result as string) || '';
+      const cleanText = rawText.replace(/^\uFEFF/, '');
       const lines = cleanText.split(/\r?\n/).filter((line) => line.trim().length > 0);
       if (!lines.length) return;
       const header = lines[0].split(',').map((h) => h.trim().toLowerCase());
