@@ -89,8 +89,8 @@ export default function CekIslemleriModal({
   const [dirty, setDirty] = useState(false);
 
   const [girisCustomerId, setGirisCustomerId] = useState('');
-  const [girisDuzenleyen, setGirisDuzenleyen] = useState('Esca Food AŞ');
-  const [girisLehtar, setGirisLehtar] = useState('');
+  const [girisDuzenleyen, setGirisDuzenleyen] = useState('');
+  const [girisLehtar, setGirisLehtar] = useState('Esca Food AŞ');
   const [girisBankaAdi, setGirisBankaAdi] = useState('');
   const [girisCekNo, setGirisCekNo] = useState('');
   const [girisTutar, setGirisTutar] = useState<number | null>(null);
@@ -98,13 +98,9 @@ export default function CekIslemleriModal({
   const [girisAciklama, setGirisAciklama] = useState('');
 
   const [cikisIslemTarihi, setCikisIslemTarihi] = useState(todayIso());
-  const [cikisFilterCustomerId, setCikisFilterCustomerId] = useState('');
-  const [cikisFilterBanka, setCikisFilterBanka] = useState('');
-  const [cikisFilterStart, setCikisFilterStart] = useState('');
-  const [cikisFilterEnd, setCikisFilterEnd] = useState('');
   const [cikisSelectedChequeId, setCikisSelectedChequeId] = useState('');
   const [cikisReason, setCikisReason] = useState<CikisReason>('TAHSIL_ELDEN');
-  const [cikisTahsilBankasi, setCikisTahsilBankasi] = useState('');
+  const [cikisTahsilBankasiId, setCikisTahsilBankasiId] = useState('');
   const [cikisSupplierId, setCikisSupplierId] = useState('');
   const [cikisAciklama, setCikisAciklama] = useState('');
 
@@ -139,8 +135,8 @@ export default function CekIslemleriModal({
       setActiveTab(initialTab);
       setDirty(false);
       setGirisCustomerId('');
-      setGirisDuzenleyen('Esca Food AŞ');
-      setGirisLehtar('');
+      setGirisDuzenleyen('');
+      setGirisLehtar('Esca Food AŞ');
       setGirisBankaAdi('');
       setGirisCekNo('');
       setGirisTutar(null);
@@ -148,13 +144,9 @@ export default function CekIslemleriModal({
       setGirisAciklama('');
 
       setCikisIslemTarihi(todayIso());
-      setCikisFilterCustomerId('');
-      setCikisFilterBanka('');
-      setCikisFilterStart('');
-      setCikisFilterEnd('');
       setCikisSelectedChequeId('');
       setCikisReason('TAHSIL_ELDEN');
-      setCikisTahsilBankasi('');
+      setCikisTahsilBankasiId('');
       setCikisSupplierId('');
       setCikisAciklama('');
 
@@ -172,7 +164,7 @@ export default function CekIslemleriModal({
   useEffect(() => {
     if (girisCustomerId) {
       const found = customers.find((c) => c.id === girisCustomerId);
-      if (found) setGirisLehtar(found.ad);
+      if (found) setGirisDuzenleyen(found.ad);
     }
   }, [girisCustomerId, customers]);
 
@@ -191,14 +183,9 @@ export default function CekIslemleriModal({
   const customerOptions = customers.map((c) => ({ id: c.id, label: `${c.kod} - ${c.ad}` }));
   const supplierOptions = suppliers.map((s) => ({ id: s.id, label: `${s.kod} - ${s.ad}` }));
 
-  const filteredCikisCheques = useMemo(() => {
-    return cheques
-      .filter((c) => c.status === 'KASADA' && c.kasaMi)
-      .filter((c) => (cikisFilterCustomerId ? c.musteriId === cikisFilterCustomerId : true))
-      .filter((c) => (cikisFilterBanka ? c.bankaAdi === cikisFilterBanka : true))
-      .filter((c) => (cikisFilterStart ? c.vadeTarihi >= cikisFilterStart : true))
-      .filter((c) => (cikisFilterEnd ? c.vadeTarihi <= cikisFilterEnd : true));
-  }, [cheques, cikisFilterBanka, cikisFilterCustomerId, cikisFilterEnd, cikisFilterStart]);
+  const cikisEligibleCheques = useMemo(() => {
+    return [...cheques.filter((c) => c.status === 'KASADA')].sort((a, b) => a.vadeTarihi.localeCompare(b.vadeTarihi));
+  }, [cheques]);
 
   const reportRows = useMemo(() => {
     const base = cheques
@@ -230,22 +217,22 @@ export default function CekIslemleriModal({
   const statusLabel = (status: ChequeStatus) => {
     switch (status) {
       case 'KASADA':
-        return 'KASADA';
+        return 'Kasada';
       case 'BANKADA_TAHSILDE':
-        return 'BANKADA (TAHSİLDE)';
-      case 'ODEMEDE':
-        return 'ÖDEMEDE';
+        return 'Bankada (Tahsilde)';
       case 'TAHSIL_OLDU':
-        return 'TAHSİL OLDU';
+        return 'Tahsil Oldu';
+      case 'ODEMEDE':
+        return 'Ödemede / Dolaşımda';
       case 'ODEME_YAPILDI':
-        return 'ÖDEME YAPILDI';
+        return 'Ödeme Yapıldı';
       case 'KARSILIKSIZ':
-        return 'KARŞILIKSIZ';
+        return 'Karşılıksız';
       case 'IPTAL':
-        return 'İPTAL';
+        return 'İptal';
       case 'CIKMIS':
       default:
-        return 'ÇIKMIŞ';
+        return 'Çıkmış';
     }
   };
 
@@ -263,8 +250,8 @@ export default function CekIslemleriModal({
       bankaAdi: girisBankaAdi,
       tutar: girisTutar,
       vadeTarihi: girisVadeTarihi,
-      duzenleyen: girisDuzenleyen,
-      lehtar: girisLehtar || girisDuzenleyen,
+      duzenleyen: girisDuzenleyen || customers.find((c) => c.id === girisCustomerId)?.ad || '',
+      lehtar: girisLehtar || 'Esca Food AŞ',
       musteriId: girisCustomerId,
       status: 'KASADA',
       kasaMi: true,
@@ -274,9 +261,9 @@ export default function CekIslemleriModal({
   };
 
   const handleSaveCikis = () => {
-    const selectedCheque = cheques.find((c) => c.id === cikisSelectedChequeId && c.status === 'KASADA' && c.kasaMi);
+    const selectedCheque = cikisEligibleCheques.find((c) => c.id === cikisSelectedChequeId);
     if (!selectedCheque) return;
-    if (cikisReason === 'TAHSIL_BANKADAN' && !cikisTahsilBankasi) return;
+    if (cikisReason === 'TAHSIL_BANKADAN' && !cikisTahsilBankasiId) return;
     if (cikisReason === 'TEDARIKCI_VERILDI' && !cikisSupplierId) return;
 
     let newStatus: ChequeStatus = 'CIKMIS';
@@ -288,8 +275,10 @@ export default function CekIslemleriModal({
         newStatus = 'BANKADA_TAHSILDE';
         break;
       case 'TEDARIKCI_VERILDI':
-      case 'YAZILDI':
         newStatus = 'ODEMEDE';
+        break;
+      case 'YAZILDI':
+        newStatus = 'KARSILIKSIZ';
         break;
       case 'IADE':
         newStatus = 'IPTAL';
@@ -300,43 +289,127 @@ export default function CekIslemleriModal({
         break;
     }
 
+    const tahsilBank = cikisReason === 'TAHSIL_BANKADAN' ? banks.find((b) => b.id === cikisTahsilBankasiId) : undefined;
+    const tedarikci = cikisReason === 'TEDARIKCI_VERILDI' ? suppliers.find((s) => s.id === cikisSupplierId) : undefined;
+
     const updatedCheques = cheques.map((c) => {
       if (c.id !== selectedCheque.id) return c;
       return {
         ...c,
         status: newStatus,
         kasaMi: false,
-        tedarikciId: cikisReason === 'TEDARIKCI_VERILDI' ? cikisSupplierId || c.tedarikciId : c.tedarikciId,
-        bankaAdi: cikisReason === 'TAHSIL_BANKADAN' ? cikisTahsilBankasi || c.bankaAdi : c.bankaAdi,
+        tedarikciId: tedarikci ? tedarikci.id : c.tedarikciId,
+        bankaId: tahsilBank ? tahsilBank.id : c.bankaId,
+        bankaAdi: tahsilBank ? tahsilBank.hesapAdi || tahsilBank.bankaAdi : c.bankaAdi,
         aciklama: cikisAciklama || c.aciklama,
       };
     });
 
-    let counterparty = 'Diğer';
-    if (cikisReason === 'TAHSIL_ELDEN') counterparty = 'Tahsil Elden';
-    if (cikisReason === 'TAHSIL_BANKADAN') counterparty = cikisTahsilBankasi || 'Banka';
-    if (cikisReason === 'TEDARIKCI_VERILDI') {
-      const sup = suppliers.find((s) => s.id === cikisSupplierId);
-      counterparty = sup ? `${sup.kod} - ${sup.ad}` : 'Tedarikçi';
-    }
-    if (cikisReason === 'IADE') counterparty = 'İade';
-
     const nowIso = new Date().toISOString();
-    const tx: DailyTransaction = {
-      id: generateId(),
-      isoDate: cikisIslemTarihi,
-      displayDate: isoToDisplay(cikisIslemTarihi),
-      documentNo: `CEK-${selectedCheque.cekNo}`,
-      type: 'Kasadan Çek Çıkışı',
-      source: reasonLabels[cikisReason],
-      counterparty,
-      description: `Çek No: ${selectedCheque.cekNo} – ${cikisAciklama || ''}`.trim(),
-      incoming: 0,
-      outgoing: 0,
-      balanceAfter: 0,
-      createdAtIso: nowIso,
-      createdBy: currentUserEmail,
-    };
+    const description = `Çek No: ${selectedCheque.cekNo}${cikisAciklama ? ` – ${cikisAciklama}` : ''}`;
+    let tx: DailyTransaction | undefined;
+
+    if (cikisReason === 'TAHSIL_ELDEN') {
+      tx = {
+        id: generateId(),
+        isoDate: cikisIslemTarihi,
+        displayDate: isoToDisplay(cikisIslemTarihi),
+        documentNo: `CEK-${selectedCheque.cekNo}`,
+        type: 'Kasadan Çek Çıkışı',
+        source: 'TAHSIL_ELDEN',
+        counterparty: 'Tahsil Elden',
+        description,
+        incoming: selectedCheque.tutar,
+        outgoing: 0,
+        balanceAfter: 0,
+        displayIncoming: selectedCheque.tutar,
+        createdAtIso: nowIso,
+        createdBy: currentUserEmail,
+      };
+    } else if (cikisReason === 'TAHSIL_BANKADAN' && tahsilBank) {
+      tx = {
+        id: generateId(),
+        isoDate: cikisIslemTarihi,
+        displayDate: isoToDisplay(cikisIslemTarihi),
+        documentNo: `CEK-${selectedCheque.cekNo}`,
+        type: 'Kasadan Çek Çıkışı - Tahsil Bankadan',
+        source: 'TAHSIL_BANKADAN',
+        counterparty: tahsilBank.hesapAdi || tahsilBank.bankaAdi || 'Banka',
+        description,
+        incoming: 0,
+        outgoing: 0,
+        balanceAfter: 0,
+        bankId: tahsilBank.id,
+        bankDelta: selectedCheque.tutar,
+        displayIncoming: selectedCheque.tutar,
+        createdAtIso: nowIso,
+        createdBy: currentUserEmail,
+      };
+    } else if (cikisReason === 'TEDARIKCI_VERILDI') {
+      tx = {
+        id: generateId(),
+        isoDate: cikisIslemTarihi,
+        displayDate: isoToDisplay(cikisIslemTarihi),
+        documentNo: `CEK-${selectedCheque.cekNo}`,
+        type: 'Kasadan Çek Çıkışı',
+        source: 'TEDARIKCIYE_VERILDI',
+        counterparty: tedarikci ? `${tedarikci.kod} - ${tedarikci.ad}` : 'Tedarikçi',
+        description,
+        incoming: 0,
+        outgoing: 0,
+        balanceAfter: 0,
+        createdAtIso: nowIso,
+        createdBy: currentUserEmail,
+      };
+    } else if (cikisReason === 'YAZILDI') {
+      tx = {
+        id: generateId(),
+        isoDate: cikisIslemTarihi,
+        displayDate: isoToDisplay(cikisIslemTarihi),
+        documentNo: `CEK-${selectedCheque.cekNo}`,
+        type: 'Kasadan Çek Çıkışı',
+        source: 'YAZILDI',
+        counterparty: 'Karşılıksız',
+        description,
+        incoming: 0,
+        outgoing: 0,
+        balanceAfter: 0,
+        createdAtIso: nowIso,
+        createdBy: currentUserEmail,
+      };
+    } else if (cikisReason === 'IADE') {
+      tx = {
+        id: generateId(),
+        isoDate: cikisIslemTarihi,
+        displayDate: isoToDisplay(cikisIslemTarihi),
+        documentNo: `CEK-${selectedCheque.cekNo}`,
+        type: 'Kasadan Çek Çıkışı',
+        source: 'IADE',
+        counterparty: 'İade',
+        description,
+        incoming: 0,
+        outgoing: 0,
+        balanceAfter: 0,
+        createdAtIso: nowIso,
+        createdBy: currentUserEmail,
+      };
+    } else if (cikisReason === 'DIGER') {
+      tx = {
+        id: generateId(),
+        isoDate: cikisIslemTarihi,
+        displayDate: isoToDisplay(cikisIslemTarihi),
+        documentNo: `CEK-${selectedCheque.cekNo}`,
+        type: 'Kasadan Çek Çıkışı',
+        source: 'DIGER',
+        counterparty: 'Diğer',
+        description,
+        incoming: 0,
+        outgoing: 0,
+        balanceAfter: 0,
+        createdAtIso: nowIso,
+        createdBy: currentUserEmail,
+      };
+    }
 
     onSaved({ updatedCheques, transaction: tx });
   };
@@ -381,7 +454,9 @@ export default function CekIslemleriModal({
           ].map((tab) => (
             <button
               key={tab.key}
-              className={`px-3 py-2 rounded ${activeTab === tab.key ? 'bg-orange-600 text-white' : 'bg-slate-200'}`}
+              className={`px-3 py-2 rounded-lg border ${
+                activeTab === tab.key ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-700'
+              }`}
               onClick={() => setActiveTab(tab.key as Props['initialTab'])}
             >
               {tab.label}
@@ -391,98 +466,102 @@ export default function CekIslemleriModal({
 
         {activeTab === 'GIRIS' && (
           <div className="space-y-4">
-            <FormRow label="Müşteri" required>
-              <SearchableSelect
-                valueId={girisCustomerId || null}
-                onChange={(id) => {
-                  setGirisCustomerId(id || '');
-                  setDirty(true);
-                }}
-                options={customerOptions}
-                placeholder="Müşteri seçin"
-              />
-            </FormRow>
-            <FormRow label="Düzenleyen" required>
-              <input
-                className="form-input"
-                value={girisDuzenleyen}
-                onChange={(e) => {
-                  setGirisDuzenleyen(e.target.value);
-                  setDirty(true);
-                }}
-              />
-            </FormRow>
-            <FormRow label="Lehtar" required>
-              <input
-                className="form-input"
-                value={girisLehtar}
-                onChange={(e) => {
-                  setGirisLehtar(e.target.value);
-                  setDirty(true);
-                }}
-              />
-            </FormRow>
-            <FormRow label="Banka" required>
-              <select
-                className="form-input"
-                value={girisBankaAdi}
-                onChange={(e) => {
-                  setGirisBankaAdi(e.target.value);
-                  setDirty(true);
-                }}
-              >
-                <option value="">Seçiniz</option>
-                {bankNameOptions.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            </FormRow>
-            <FormRow label="Çek No" required>
-              <input
-                className="form-input"
-                value={girisCekNo}
-                onChange={(e) => {
-                  setGirisCekNo(e.target.value);
-                  setDirty(true);
-                }}
-              />
-            </FormRow>
-            <FormRow label="Tutar" required>
-              <MoneyInput
-                className="form-input"
-                value={girisTutar}
-                onChange={(v) => {
-                  setGirisTutar(v);
-                  setDirty(true);
-                }}
-              />
-            </FormRow>
-            <FormRow label="Vade Tarihi" required>
-              <DateInput
-                value={girisVadeTarihi}
-                onChange={(v) => {
-                  setGirisVadeTarihi(v);
-                  setDirty(true);
-                }}
-              />
-            </FormRow>
-            <FormRow label="Açıklama">
-              <input
-                className="form-input"
-                value={girisAciklama}
-                onChange={(e) => {
-                  setGirisAciklama(e.target.value);
-                  setDirty(true);
-                }}
-              />
-            </FormRow>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <FormRow label="Müşteri" required>
+                <SearchableSelect
+                  valueId={girisCustomerId || null}
+                  onChange={(id) => {
+                    setGirisCustomerId(id || '');
+                    setDirty(true);
+                  }}
+                  options={customerOptions}
+                  placeholder="Müşteri seçin"
+                />
+              </FormRow>
+              <FormRow label="Düzenleyen" required>
+                <input
+                  className="form-input"
+                  value={girisDuzenleyen}
+                  onChange={(e) => {
+                    setGirisDuzenleyen(e.target.value);
+                    setDirty(true);
+                  }}
+                />
+              </FormRow>
+              <FormRow label="Lehtar" required>
+                <input
+                  className="form-input"
+                  value={girisLehtar}
+                  onChange={(e) => {
+                    setGirisLehtar(e.target.value);
+                    setDirty(true);
+                  }}
+                />
+              </FormRow>
+              <FormRow label="Banka" required>
+                <select
+                  className="form-input"
+                  value={girisBankaAdi}
+                  onChange={(e) => {
+                    setGirisBankaAdi(e.target.value);
+                    setDirty(true);
+                  }}
+                >
+                  <option value="">Seçiniz</option>
+                  {bankNameOptions.map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+                </select>
+              </FormRow>
+              <FormRow label="Çek No" required>
+                <input
+                  className="form-input"
+                  value={girisCekNo}
+                  onChange={(e) => {
+                    setGirisCekNo(e.target.value);
+                    setDirty(true);
+                  }}
+                />
+              </FormRow>
+              <FormRow label="Tutar" required>
+                <MoneyInput
+                  className="form-input"
+                  value={girisTutar}
+                  onChange={(v) => {
+                    setGirisTutar(v);
+                    setDirty(true);
+                  }}
+                  placeholder="0,00"
+                />
+              </FormRow>
+              <FormRow label="Vade Tarihi" required>
+                <DateInput
+                  value={girisVadeTarihi}
+                  onChange={(v) => {
+                    setGirisVadeTarihi(v);
+                    setDirty(true);
+                  }}
+                />
+              </FormRow>
+              <FormRow label="Açıklama">
+                <input
+                  className="form-input"
+                  value={girisAciklama}
+                  onChange={(e) => {
+                    setGirisAciklama(e.target.value);
+                    setDirty(true);
+                  }}
+                  maxLength={100}
+                />
+              </FormRow>
+            </div>
             <div className="flex justify-end space-x-3">
               <button className="px-4 py-2 bg-slate-200 rounded-lg" onClick={handleClose}>
                 İptal
               </button>
-              <button className="px-4 py-2 bg-orange-600 text-white rounded-lg" onClick={handleSaveGiris}>
+              <button className="px-4 py-2 bg-indigo-600 text-white rounded-lg" onClick={handleSaveGiris}>
                 Kaydet
               </button>
             </div>
@@ -491,7 +570,7 @@ export default function CekIslemleriModal({
 
         {activeTab === 'CIKIS' && (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormRow label="İşlem Tarihi" required>
                 <DateInput
                   value={cikisIslemTarihi}
@@ -501,77 +580,26 @@ export default function CekIslemleriModal({
                   }}
                 />
               </FormRow>
-              <FormRow label="Müşteri Filtresi">
-                <SearchableSelect
-                  valueId={cikisFilterCustomerId || null}
-                  onChange={(id) => setCikisFilterCustomerId(id || '')}
-                  options={customerOptions}
-                  placeholder="Müşteri"
-                />
-              </FormRow>
-              <FormRow label="Banka Filtresi">
+              <FormRow label="Çek Seçimi" required>
                 <select
                   className="form-input"
-                  value={cikisFilterBanka}
-                  onChange={(e) => setCikisFilterBanka(e.target.value)}
+                  value={cikisSelectedChequeId}
+                  onChange={(e) => {
+                    setCikisSelectedChequeId(e.target.value);
+                    setDirty(true);
+                  }}
                 >
-                  <option value="">Tümü</option>
-                  {bankNameOptions.map((b) => (
-                    <option key={b} value={b}>
-                      {b}
-                    </option>
-                  ))}
+                  <option value="">Seçiniz</option>
+                  {cikisEligibleCheques.map((c) => {
+                    const counter = (c.lehtar || c.duzenleyen || '-').slice(0, 10);
+                    return (
+                      <option key={c.id} value={c.id}>
+                        {`${c.cekNo} – ${counter} – ${formatTl(c.tutar)}`}
+                      </option>
+                    );
+                  })}
                 </select>
               </FormRow>
-              <FormRow label="Vade Başlangıç">
-                <DateInput value={cikisFilterStart} onChange={(v) => setCikisFilterStart(v)} />
-              </FormRow>
-              <FormRow label="Vade Bitiş">
-                <DateInput value={cikisFilterEnd} onChange={(v) => setCikisFilterEnd(v)} />
-              </FormRow>
-            </div>
-            <div className="max-h-56 overflow-auto border rounded-lg">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 sticky top-0">
-                  <tr>
-                    <th className="py-2 px-2 text-left">Seç</th>
-                    <th className="py-2 px-2 text-left">Çek No</th>
-                    <th className="py-2 px-2 text-left">Müşteri/Lehtar</th>
-                    <th className="py-2 px-2 text-left">Banka</th>
-                    <th className="py-2 px-2 text-left">Vade</th>
-                    <th className="py-2 px-2 text-left">Tutar</th>
-                    <th className="py-2 px-2 text-left">Durum</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredCikisCheques.length === 0 && (
-                    <tr>
-                      <td colSpan={7} className="py-3 text-center text-slate-500">
-                        Uygun çek bulunamadı.
-                      </td>
-                    </tr>
-                  )}
-                  {filteredCikisCheques.map((c) => (
-                    <tr key={c.id} className="border-t">
-                      <td className="py-2 px-2">
-                        <input
-                          type="radio"
-                          checked={cikisSelectedChequeId === c.id}
-                          onChange={() => setCikisSelectedChequeId(c.id)}
-                        />
-                      </td>
-                      <td className="py-2 px-2">{c.cekNo}</td>
-                      <td className="py-2 px-2">{c.lehtar}</td>
-                      <td className="py-2 px-2">{c.bankaAdi || '-'}</td>
-                      <td className="py-2 px-2">{isoToDisplay(c.vadeTarihi)}</td>
-                      <td className="py-2 px-2">{formatTl(c.tutar)}</td>
-                      <td className="py-2 px-2">{statusLabel(c.status)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <FormRow label="Çıkış Nedeni" required>
                 <select
                   className="form-input"
@@ -592,16 +620,16 @@ export default function CekIslemleriModal({
                 <FormRow label="Tahsil Bankası" required>
                   <select
                     className="form-input"
-                    value={cikisTahsilBankasi}
+                    value={cikisTahsilBankasiId}
                     onChange={(e) => {
-                      setCikisTahsilBankasi(e.target.value);
+                      setCikisTahsilBankasiId(e.target.value);
                       setDirty(true);
                     }}
                   >
                     <option value="">Seçiniz</option>
-                    {bankNameOptions.map((b) => (
-                      <option key={b} value={b}>
-                        {b}
+                    {banks.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.hesapAdi}
                       </option>
                     ))}
                   </select>
@@ -621,13 +649,14 @@ export default function CekIslemleriModal({
                 </FormRow>
               )}
               <FormRow label="Açıklama">
-                <input
+                <textarea
                   className="form-input"
                   value={cikisAciklama}
                   onChange={(e) => {
                     setCikisAciklama(e.target.value);
                     setDirty(true);
                   }}
+                  maxLength={150}
                 />
               </FormRow>
             </div>
@@ -635,7 +664,7 @@ export default function CekIslemleriModal({
               <button className="px-4 py-2 bg-slate-200 rounded-lg" onClick={handleClose}>
                 İptal
               </button>
-              <button className="px-4 py-2 bg-orange-600 text-white rounded-lg" onClick={handleSaveCikis}>
+              <button className="px-4 py-2 bg-indigo-600 text-white rounded-lg" onClick={handleSaveCikis}>
                 Kaydet
               </button>
             </div>
@@ -644,100 +673,104 @@ export default function CekIslemleriModal({
 
         {activeTab === 'YENI' && (
           <div className="space-y-4">
-            <FormRow label="Düzenleyen" required>
-              <input
-                className="form-input"
-                value={yeniDuzenleyen}
-                onChange={(e) => {
-                  setYeniDuzenleyen(e.target.value);
-                  setDirty(true);
-                }}
-              />
-            </FormRow>
-            <FormRow label="Lehtar (Tedarikçi)" required>
-              <SearchableSelect
-                valueId={yeniSupplierId || null}
-                onChange={(id) => {
-                  setYeniSupplierId(id || '');
-                  setDirty(true);
-                }}
-                options={supplierOptions}
-                placeholder="Tedarikçi seçin"
-              />
-            </FormRow>
-            <FormRow label="Lehtar Adı" required>
-              <input
-                className="form-input"
-                value={yeniLehtar}
-                onChange={(e) => {
-                  setYeniLehtar(e.target.value);
-                  setDirty(true);
-                }}
-              />
-            </FormRow>
-            <FormRow label="Banka" required>
-              <select
-                className="form-input"
-                value={yeniBankId}
-                onChange={(e) => {
-                  setYeniBankId(e.target.value);
-                  setDirty(true);
-                }}
-              >
-                <option value="">Seçiniz</option>
-                {banks
-                  .filter((b) => b.cekKarnesiVarMi)
-                  .map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.hesapAdi}
-                    </option>
-                  ))}
-              </select>
-            </FormRow>
-            <FormRow label="Çek No" required>
-              <input
-                className="form-input"
-                value={yeniCekNo}
-                onChange={(e) => {
-                  setYeniCekNo(e.target.value);
-                  setDirty(true);
-                }}
-              />
-            </FormRow>
-            <FormRow label="Tutar" required>
-              <MoneyInput
-                className="form-input"
-                value={yeniTutar}
-                onChange={(v) => {
-                  setYeniTutar(v);
-                  setDirty(true);
-                }}
-              />
-            </FormRow>
-            <FormRow label="Vade Tarihi" required>
-              <DateInput
-                value={yeniVadeTarihi}
-                onChange={(v) => {
-                  setYeniVadeTarihi(v);
-                  setDirty(true);
-                }}
-              />
-            </FormRow>
-            <FormRow label="Açıklama">
-              <input
-                className="form-input"
-                value={yeniAciklama}
-                onChange={(e) => {
-                  setYeniAciklama(e.target.value);
-                  setDirty(true);
-                }}
-              />
-            </FormRow>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <FormRow label="Tedarikçi" required>
+                <SearchableSelect
+                  valueId={yeniSupplierId || null}
+                  onChange={(id) => {
+                    setYeniSupplierId(id || '');
+                    setDirty(true);
+                  }}
+                  options={supplierOptions}
+                  placeholder="Tedarikçi"
+                />
+              </FormRow>
+              <FormRow label="Banka" required>
+                <select
+                  className="form-input"
+                  value={yeniBankId}
+                  onChange={(e) => {
+                    setYeniBankId(e.target.value);
+                    setDirty(true);
+                  }}
+                >
+                  <option value="">Seçiniz</option>
+                  {banks
+                    .filter((b) => b.cekKarnesiVarMi)
+                    .map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.hesapAdi}
+                      </option>
+                    ))}
+                </select>
+              </FormRow>
+              <FormRow label="Düzenleyen" required>
+                <input
+                  className="form-input"
+                  value={yeniDuzenleyen}
+                  onChange={(e) => {
+                    setYeniDuzenleyen(e.target.value);
+                    setDirty(true);
+                  }}
+                />
+              </FormRow>
+              <FormRow label="Lehtar" required>
+                <input
+                  className="form-input"
+                  value={yeniLehtar}
+                  onChange={(e) => {
+                    setYeniLehtar(e.target.value);
+                    setDirty(true);
+                  }}
+                />
+              </FormRow>
+              <FormRow label="Çek No" required>
+                <input
+                  className="form-input"
+                  value={yeniCekNo}
+                  onChange={(e) => {
+                    setYeniCekNo(e.target.value);
+                    setDirty(true);
+                  }}
+                />
+              </FormRow>
+              <FormRow label="Tutar" required>
+                <MoneyInput
+                  className="form-input"
+                  value={yeniTutar}
+                  onChange={(v) => {
+                    setYeniTutar(v);
+                    setDirty(true);
+                  }}
+                  placeholder="0,00"
+                />
+              </FormRow>
+              <FormRow label="Vade Tarihi" required>
+                <DateInput
+                  value={yeniVadeTarihi}
+                  onChange={(v) => {
+                    setYeniVadeTarihi(v);
+                    setDirty(true);
+                  }}
+                />
+              </FormRow>
+              <FormRow label="Açıklama">
+                <input
+                  className="form-input"
+                  value={yeniAciklama}
+                  onChange={(e) => {
+                    setYeniAciklama(e.target.value);
+                    setDirty(true);
+                  }}
+                  maxLength={100}
+                />
+              </FormRow>
+            </div>
             <div className="flex justify-end space-x-3">
               <button className="px-4 py-2 bg-slate-200 rounded-lg" onClick={handleClose}>
                 İptal
               </button>
-              <button className="px-4 py-2 bg-orange-600 text-white rounded-lg" onClick={handleSaveYeni}>
+              <button className="px-4 py-2 bg-indigo-600 text-white rounded-lg" onClick={handleSaveYeni}>
                 Kaydet
               </button>
             </div>
@@ -746,7 +779,7 @@ export default function CekIslemleriModal({
 
         {activeTab === 'RAPOR' && (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <FormRow label="Vade Başlangıç">
                 <DateInput value={reportStart} onChange={(v) => setReportStart(v)} />
               </FormRow>
@@ -782,42 +815,27 @@ export default function CekIslemleriModal({
                       'IPTAL',
                       'CIKMIS',
                     ] as ChequeStatus[]
-                  ).map((st) => (
-                    <label key={st} className="flex items-center space-x-1 text-xs">
+                  ).map((s) => (
+                    <label key={s} className="flex items-center space-x-1 text-xs">
                       <input
                         type="checkbox"
-                        checked={reportStatuses.includes(st)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setReportStatuses((prev) => [...prev, st]);
-                          } else {
-                            setReportStatuses((prev) => prev.filter((s) => s !== st));
-                          }
-                        }}
+                        checked={reportStatuses.includes(s)}
+                        onChange={(e) =>
+                          setReportStatuses((prev) =>
+                            e.target.checked ? [...prev, s] : prev.filter((x) => x !== s)
+                          )
+                        }
                       />
-                      <span>{statusLabel(st)}</span>
+                      <span>{statusLabel(s)}</span>
                     </label>
                   ))}
                 </div>
               </FormRow>
             </div>
-            <div className="overflow-auto max-h-96 border rounded-lg">
+            <div className="border rounded-lg overflow-hidden">
               <table className="w-full text-sm">
-                <thead className="bg-slate-50 sticky top-0">
+                <thead className="bg-slate-50">
                   <tr>
-                    <th
-                      className="py-2 px-2 text-left cursor-pointer"
-                      onClick={() => {
-                        if (reportSortKey === 'vadeTarihi') {
-                          setReportSortDir(reportSortDir === 'asc' ? 'desc' : 'asc');
-                        } else {
-                          setReportSortKey('vadeTarihi');
-                          setReportSortDir('asc');
-                        }
-                      }}
-                    >
-                      Vade Tarihi
-                    </th>
                     <th className="py-2 px-2 text-left">Çek No</th>
                     <th className="py-2 px-2 text-left">Banka</th>
                     <th className="py-2 px-2 text-left">Düzenleyen</th>
@@ -825,12 +843,17 @@ export default function CekIslemleriModal({
                     <th
                       className="py-2 px-2 text-left cursor-pointer"
                       onClick={() => {
-                        if (reportSortKey === 'tutar') {
-                          setReportSortDir(reportSortDir === 'asc' ? 'desc' : 'asc');
-                        } else {
-                          setReportSortKey('tutar');
-                          setReportSortDir('asc');
-                        }
+                        setReportSortKey('vadeTarihi');
+                        setReportSortDir((prev) => (reportSortKey === 'vadeTarihi' && prev === 'asc' ? 'desc' : 'asc'));
+                      }}
+                    >
+                      Vade Tarihi
+                    </th>
+                    <th
+                      className="py-2 px-2 text-left cursor-pointer"
+                      onClick={() => {
+                        setReportSortKey('tutar');
+                        setReportSortDir((prev) => (reportSortKey === 'tutar' && prev === 'asc' ? 'desc' : 'asc'));
                       }}
                     >
                       Tutar
@@ -843,17 +866,17 @@ export default function CekIslemleriModal({
                   {reportRows.length === 0 && (
                     <tr>
                       <td colSpan={8} className="py-3 text-center text-slate-500">
-                        Kayıt bulunamadı.
+                        Kayıt yok.
                       </td>
                     </tr>
                   )}
                   {reportRows.map((c) => (
                     <tr key={c.id} className="border-t">
-                      <td className="py-2 px-2">{isoToDisplay(c.vadeTarihi)}</td>
                       <td className="py-2 px-2">{c.cekNo}</td>
                       <td className="py-2 px-2">{c.bankaAdi || '-'}</td>
                       <td className="py-2 px-2">{c.duzenleyen}</td>
                       <td className="py-2 px-2">{c.lehtar}</td>
+                      <td className="py-2 px-2">{isoToDisplay(c.vadeTarihi)}</td>
                       <td className="py-2 px-2">{formatTl(c.tutar)}</td>
                       <td className="py-2 px-2">{statusLabel(c.status)}</td>
                       <td className="py-2 px-2">{getKonum(c)}</td>

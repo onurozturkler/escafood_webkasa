@@ -89,7 +89,10 @@ export default function BankaNakitCikis({ isOpen, onClose, onSaved, currentUserE
   const faturaRequired = useMemo(() => islemTuru === 'FATURA_ODEME', [islemTuru]);
   const hedefRequired = useMemo(() => islemTuru === 'VIRMAN', [islemTuru]);
   const eligibleCheques = useMemo(
-    () => cheques.filter((c) => c.status === 'ODEMEDE' || c.status === 'BANKADA_TAHSILDE'),
+    () =>
+      cheques.filter(
+        (c) => c.tedarikciId && (c.status === 'ODEMEDE' || c.status === 'BANKADA_TAHSILDE')
+      ),
     [cheques]
   );
 

@@ -175,6 +175,7 @@ const [banks, setBanks] = useState<BankMaster[]>([
       });
 
     cheques
+      .filter((c) => c.tedarikciId && !c.kasaMi)
       .filter((c) => ['KASADA', 'BANKADA_TAHSILDE', 'ODEMEDE'].includes(c.status))
       .forEach((cek) => {
         payments.push({
@@ -413,7 +414,7 @@ const [banks, setBanks] = useState<BankMaster[]>([
         counterparty,
         description,
         incoming: 0,
-        outgoing: 0,
+        outgoing: values.islemTuru === 'CEK_ODEME' ? tutar : 0,
         balanceAfter: 0,
         bankId: values.bankaId,
         bankDelta: -tutar,
