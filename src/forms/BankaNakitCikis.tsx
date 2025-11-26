@@ -38,9 +38,9 @@ interface Props {
   onClose: () => void;
   onSaved: (values: BankaNakitCikisFormValues) => void;
   currentUserEmail: string;
-  banks: BankMaster[];
-  cheques: Cheque[];
-  creditCards: CreditCard[];
+  banks?: BankMaster[];
+  cheques?: Cheque[];
+  creditCards?: CreditCard[];
 }
 
 const turLabels: Record<BankaNakitCikisTuru, string> = {
@@ -68,11 +68,13 @@ export default function BankaNakitCikis({
   onClose,
   onSaved,
   currentUserEmail,
-  banks,
-  cheques,
-  creditCards,
+  banks = [],
+  cheques = [],
+  creditCards = [],
 }: Props) {
-  const chequeListSafe: Cheque[] = Array.isArray(cheques) ? cheques : [];
+  const safeBanks: BankMaster[] = Array.isArray(banks) ? banks : [];
+  const safeCreditCards: CreditCard[] = Array.isArray(creditCards) ? creditCards : [];
+  const chequeList: Cheque[] = Array.isArray(cheques) ? cheques : [];
   const [islemTarihiIso, setIslemTarihiIso] = useState(todayIso());
   const [bankaId, setBankaId] = useState('');
   const [hedefBankaId, setHedefBankaId] = useState('');
@@ -87,15 +89,15 @@ export default function BankaNakitCikis({
 
   const eligibleCheques = useMemo(
     () =>
-      chequeListSafe.filter(
+      chequeList.filter(
         (c) => c.tedarikciId && (c.status === 'ODEMEDE' || c.status === 'BANKADA_TAHSILDE')
       ),
-    [chequeListSafe]
+    [chequeList]
   );
 
   const eligibleCards = useMemo(
-    () => creditCards.filter((c) => banks.find((b) => b.id === c.bankaId)?.krediKartiVarMi),
-    [banks, creditCards]
+    () => safeCreditCards.filter((c) => safeBanks.find((b) => b.id === c.bankaId)?.krediKartiVarMi),
+    [safeBanks, safeCreditCards]
   );
 
   useEffect(() => {
@@ -148,8 +150,10 @@ export default function BankaNakitCikis({
       alert('Gelecek tarihli işlem kaydedilemez.');
       return;
     }
-    const bankaName = banks.find((b) => b.id === resolvedBankaId)?.hesapAdi || '-';
-    const hedefName = hedefBankaId ? banks.find((b) => b.id === hedefBankaId)?.hesapAdi || '-' : null;
+    const bankaName = safeBanks.find((b) => b.id === resolvedBankaId)?.hesapAdi || '-';
+    const hedefName = hedefBankaId
+      ? safeBanks.find((b) => b.id === hedefBankaId)?.hesapAdi || '-'
+      : null;
     const lines = [
       'Banka nakit çıkış kaydedilsin mi?',
       '',
@@ -225,7 +229,7 @@ export default function BankaNakitCikis({
                 }}
               >
                 <option value="">Seçiniz</option>
-                {banks.map((b) => (
+                {safeBanks.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.hesapAdi}
                   </option>
@@ -236,7 +240,11 @@ export default function BankaNakitCikis({
           {isCardPayment && (
             <div className="space-y-2">
               <label>Kaynak Banka</label>
-              <input className="w-full" value={banks.find((b) => b.id === selectedCard?.bankaId)?.hesapAdi || '-'} readOnly />
+              <input
+                className="w-full"
+                value={safeBanks.find((b) => b.id === selectedCard?.bankaId)?.hesapAdi || '-'}
+                readOnly
+              />
             </div>
           )}
           <div className="space-y-2">
@@ -294,7 +302,7 @@ export default function BankaNakitCikis({
                 }}
               >
                 <option value="">Seçiniz</option>
-                {banks
+                {safeBanks
                   .filter((b) => b.id !== bankaId)
                   .map((b) => (
                     <option key={b.id} value={b.id}>
