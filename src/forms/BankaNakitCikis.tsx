@@ -69,7 +69,7 @@ export default function BankaNakitCikis({
   onSaved,
   currentUserEmail,
   banks,
-  cheques,
+  cheques = [],
   creditCards,
 }: Props) {
   const [islemTarihiIso, setIslemTarihiIso] = useState(todayIso());
