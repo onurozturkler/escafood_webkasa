@@ -39,7 +39,7 @@ interface Props {
   onSaved: (values: BankaNakitCikisFormValues) => void;
   currentUserEmail: string;
   banks: BankMaster[];
-  cheques: Cheque[];
+  cheques?: Cheque[];
   creditCards: CreditCard[];
 }
 
@@ -72,6 +72,7 @@ export default function BankaNakitCikis({
   cheques = [],
   creditCards,
 }: Props) {
+  const chequeList = cheques || [];
   const [islemTarihiIso, setIslemTarihiIso] = useState(todayIso());
   const [bankaId, setBankaId] = useState('');
   const [hedefBankaId, setHedefBankaId] = useState('');
@@ -85,8 +86,8 @@ export default function BankaNakitCikis({
   const [cardId, setCardId] = useState('');
 
   const eligibleCheques = useMemo(
-    () => cheques.filter((c) => c.tedarikciId && (c.status === 'ODEMEDE' || c.status === 'BANKADA_TAHSILDE')),
-    [cheques]
+    () => chequeList.filter((c) => c.tedarikciId && (c.status === 'ODEMEDE' || c.status === 'BANKADA_TAHSILDE')),
+    [chequeList]
   );
 
   const eligibleCards = useMemo(
