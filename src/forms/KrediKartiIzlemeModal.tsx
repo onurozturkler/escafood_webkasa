@@ -14,8 +14,6 @@ interface Props {
 }
 
 export default function KrediKartiIzlemeModal({ isOpen, onClose, creditCards, banks, globalSettings }: Props) {
-  if (!isOpen) return null;
-
   const rows = useMemo(() => {
     return creditCards.map((card) => {
       const bank = banks.find((b) => b.id === card.bankaId);
@@ -24,6 +22,8 @@ export default function KrediKartiIzlemeModal({ isOpen, onClose, creditCards, ba
       return { card, bankName: bank?.bankaAdi || '-', daysLeft, dueDateDisplay: isoToDisplay(dueIso) };
     });
   }, [creditCards, banks]);
+
+  if (!isOpen) return null;
 
   return (
     <div className="modal-backdrop">
