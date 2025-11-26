@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { BankMaster } from '../models/bank';
 import { Cheque } from '../models/cheque';
+import { CreditCard } from '../models/card';
 import { formatTl, formatTlPlain, parseTl } from '../utils/money';
 import { isoToDisplay, todayIso } from '../utils/date';
 
@@ -12,7 +13,8 @@ export type BankaNakitCikisTuru =
   | 'FATURA_ODEME'
   | 'ORTAK_EFT_GIDEN'
   | 'KREDI_TAKSIDI'
-  | 'CEK_ODEME';
+  | 'CEK_ODEME'
+  | 'KREDI_KARTI_ODEME';
 
 export type FaturaMuhatap = 'ELEKTRIK' | 'SU' | 'DOGALGAZ' | 'INTERNET' | 'DIGER';
 
@@ -28,6 +30,7 @@ export interface BankaNakitCikisFormValues {
   kaydedenKullanici: string;
   krediId?: string | null;
   cekId?: string | null;
+  cardId?: string | null;
 }
 
 interface Props {
@@ -37,6 +40,7 @@ interface Props {
   currentUserEmail: string;
   banks: BankMaster[];
   cheques: Cheque[];
+  creditCards: CreditCard[];
 }
 
 const turLabels: Record<BankaNakitCikisTuru, string> = {
@@ -48,6 +52,7 @@ const turLabels: Record<BankaNakitCikisTuru, string> = {
   ORTAK_EFT_GIDEN: 'Şirket Ortağı Şahsi Hesaba EFT/Havale',
   KREDI_TAKSIDI: 'Kredi Taksidi',
   CEK_ODEME: 'Çek Ödemesi',
+  KREDI_KARTI_ODEME: 'Kredi Kartı Ödemesi',
 };
 
 const faturaOptions: { value: FaturaMuhatap; label: string }[] = [
@@ -58,7 +63,15 @@ const faturaOptions: { value: FaturaMuhatap; label: string }[] = [
   { value: 'DIGER', label: 'Diğer' },
 ];
 
-export default function BankaNakitCikis({ isOpen, onClose, onSaved, currentUserEmail, banks, cheques }: Props) {
+export default function BankaNakitCikis({
+  isOpen,
+  onClose,
+  onSaved,
+  currentUserEmail,
+  banks,
+  cheques,
+  creditCards,
+}: Props) {
   const [islemTarihiIso, setIslemTarihiIso] = useState(todayIso());
   const [bankaId, setBankaId] = useState('');
   const [hedefBankaId, setHedefBankaId] = useState('');
@@ -69,6 +82,17 @@ export default function BankaNakitCikis({ isOpen, onClose, onSaved, currentUserE
   const [tutarText, setTutarText] = useState('');
   const [dirty, setDirty] = useState(false);
   const [selectedChequeId, setSelectedChequeId] = useState('');
+  const [cardId, setCardId] = useState('');
+
+  const eligibleCheques = useMemo(
+    () => cheques.filter((c) => c.tedarikciId && (c.status === 'ODEMEDE' || c.status === 'BANKADA_TAHSILDE')),
+    [cheques]
+  );
+
+  const eligibleCards = useMemo(
+    () => creditCards.filter((c) => banks.find((b) => b.id === c.bankaId)?.krediKartiVarMi),
+    [banks, creditCards]
+  );
 
   useEffect(() => {
     if (isOpen) {
@@ -82,19 +106,14 @@ export default function BankaNakitCikis({ isOpen, onClose, onSaved, currentUserE
       setTutarText('');
       setDirty(false);
       setSelectedChequeId('');
+      setCardId('');
     }
   }, [isOpen]);
 
   const muhatapRequired = useMemo(() => islemTuru === 'MAAS_ODEME', [islemTuru]);
   const faturaRequired = useMemo(() => islemTuru === 'FATURA_ODEME', [islemTuru]);
   const hedefRequired = useMemo(() => islemTuru === 'VIRMAN', [islemTuru]);
-  const eligibleCheques = useMemo(
-    () =>
-      cheques.filter(
-        (c) => c.tedarikciId && (c.status === 'ODEMEDE' || c.status === 'BANKADA_TAHSILDE')
-      ),
-    [cheques]
-  );
+  const isCardPayment = islemTuru === 'KREDI_KARTI_ODEME';
 
   const handleClose = () => {
     if (dirty && !window.confirm('Kaydedilmemiş bilgiler var. Kapatmak istiyor musunuz?')) return;
@@ -105,20 +124,27 @@ export default function BankaNakitCikis({ isOpen, onClose, onSaved, currentUserE
     const today = todayIso();
     let tutar = parseTl(tutarText || '0') || 0;
     const selectedCheque = eligibleCheques.find((c) => c.id === selectedChequeId);
+    const selectedCard = isCardPayment ? eligibleCards.find((c) => c.id === cardId) : undefined;
     if (islemTuru === 'CEK_ODEME') {
       if (!selectedCheque) return;
       tutar = selectedCheque.tutar;
       setTutarText(formatTlPlain(selectedCheque.tutar));
     }
-    if (!islemTarihiIso || !bankaId || !islemTuru || tutar <= 0) return;
+    if (isCardPayment) {
+      if (!selectedCard) return;
+      setBankaId(selectedCard.bankaId);
+    }
+    const resolvedBankaId = isCardPayment && selectedCard ? selectedCard.bankaId : bankaId;
+    if (!islemTarihiIso || !resolvedBankaId || !islemTuru || tutar <= 0) return;
     if (muhatapRequired && muhatap.trim().length < 3) return;
     if (faturaRequired && !faturaMuhatabi) return;
     if (hedefRequired && !hedefBankaId) return;
+    if (isCardPayment && !cardId) return;
     if (islemTarihiIso > today) {
       alert('Gelecek tarihli işlem kaydedilemez.');
       return;
     }
-    const bankaName = banks.find((b) => b.id === bankaId)?.hesapAdi || '-';
+    const bankaName = banks.find((b) => b.id === resolvedBankaId)?.hesapAdi || '-';
     const hedefName = hedefBankaId ? banks.find((b) => b.id === hedefBankaId)?.hesapAdi || '-' : null;
     const lines = [
       'Banka nakit çıkış kaydedilsin mi?',
@@ -127,7 +153,9 @@ export default function BankaNakitCikis({ isOpen, onClose, onSaved, currentUserE
       `Banka: ${bankaName}`,
       hedefName ? `Hedef Banka: ${hedefName}` : null,
       `İşlem Türü: ${turLabels[islemTuru]}`,
-      `Muhatap: ${islemTuru === 'CEK_ODEME' ? selectedCheque?.lehtar || '-' : muhatap || '-'}`,
+      isCardPayment
+        ? `Kart: ${selectedCard?.kartAdi || '-'}`
+        : `Muhatap: ${islemTuru === 'CEK_ODEME' ? selectedCheque?.lehtar || '-' : muhatap || '-'}`,
       `Tutar: ${formatTl(tutar)}`,
       `Açıklama: ${aciklama || '-'}`,
     ].filter(Boolean) as string[];
@@ -137,20 +165,29 @@ export default function BankaNakitCikis({ isOpen, onClose, onSaved, currentUserE
     if (!window.confirm(lines.join('\n'))) return;
     onSaved({
       islemTarihiIso,
-      bankaId,
+      bankaId: resolvedBankaId,
       hedefBankaId: hedefRequired ? hedefBankaId : undefined,
       islemTuru,
-      muhatap: islemTuru === 'CEK_ODEME' ? selectedCheque?.lehtar || undefined : muhatapRequired || muhatap ? muhatap : undefined,
+      muhatap:
+        islemTuru === 'CEK_ODEME'
+          ? selectedCheque?.lehtar || undefined
+          : muhatapRequired || muhatap
+          ? muhatap
+          : undefined,
       faturaMuhatabi: faturaRequired ? faturaMuhatabi : undefined,
       aciklama: aciklama || undefined,
       tutar,
       kaydedenKullanici: currentUserEmail,
       krediId: null,
       cekId: islemTuru === 'CEK_ODEME' ? selectedChequeId : null,
+      cardId: isCardPayment ? cardId : null,
     });
   };
 
   if (!isOpen) return null;
+
+  const selectedCheque = eligibleCheques.find((c) => c.id === selectedChequeId);
+  const selectedCard = isCardPayment ? eligibleCards.find((c) => c.id === cardId) : undefined;
 
   return (
     <div className="modal-backdrop">
@@ -163,6 +200,7 @@ export default function BankaNakitCikis({ isOpen, onClose, onSaved, currentUserE
           <div className="space-y-2">
             <label>İşlem Tarihi</label>
             <input
+              className="w-full"
               type="date"
               value={islemTarihiIso}
               onChange={(e) => {
@@ -171,31 +209,44 @@ export default function BankaNakitCikis({ isOpen, onClose, onSaved, currentUserE
               }}
             />
           </div>
-          <div className="space-y-2">
-            <label>Kaynak Banka</label>
-            <select
-              value={bankaId}
-              onChange={(e) => {
-                setBankaId(e.target.value);
-                setDirty(true);
-              }}
-            >
-              <option value="">Seçiniz</option>
-              {banks.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.hesapAdi}
-                </option>
-              ))}
-            </select>
-          </div>
+          {!isCardPayment && (
+            <div className="space-y-2">
+              <label>Kaynak Banka</label>
+              <select
+                className="w-full"
+                value={bankaId}
+                onChange={(e) => {
+                  setBankaId(e.target.value);
+                  setDirty(true);
+                }}
+              >
+                <option value="">Seçiniz</option>
+                {banks.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.hesapAdi}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {isCardPayment && (
+            <div className="space-y-2">
+              <label>Kaynak Banka</label>
+              <input className="w-full" value={banks.find((b) => b.id === selectedCard?.bankaId)?.hesapAdi || '-'} readOnly />
+            </div>
+          )}
           <div className="space-y-2">
             <label>İşlem Türü</label>
             <select
+              className="w-full"
               value={islemTuru}
               onChange={(e) => {
-                setIslemTuru(e.target.value as BankaNakitCikisTuru);
+                const next = e.target.value as BankaNakitCikisTuru;
+                setIslemTuru(next);
                 setDirty(true);
                 setSelectedChequeId('');
+                setCardId('');
+                if (next !== 'CEK_ODEME') setTutarText('');
               }}
             >
               {Object.entries(turLabels).map(([value, label]) => (
@@ -205,10 +256,33 @@ export default function BankaNakitCikis({ isOpen, onClose, onSaved, currentUserE
               ))}
             </select>
           </div>
+          {isCardPayment && (
+            <div className="space-y-2">
+              <label>Kredi Kartı</label>
+              <select
+                className="w-full"
+                value={cardId}
+                onChange={(e) => {
+                  setCardId(e.target.value);
+                  const card = eligibleCards.find((c) => c.id === e.target.value);
+                  if (card) setBankaId(card.bankaId);
+                  setDirty(true);
+                }}
+              >
+                <option value="">Seçiniz</option>
+                {eligibleCards.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.kartAdi}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           {hedefRequired && (
             <div className="space-y-2">
               <label>Hedef Banka</label>
               <select
+                className="w-full"
                 value={hedefBankaId}
                 onChange={(e) => {
                   setHedefBankaId(e.target.value);
@@ -226,10 +300,11 @@ export default function BankaNakitCikis({ isOpen, onClose, onSaved, currentUserE
               </select>
             </div>
           )}
-          {islemTuru !== 'CEK_ODEME' && (
+          {!isCardPayment && islemTuru !== 'CEK_ODEME' && (
             <div className="space-y-2">
               <label>Muhatap</label>
               <input
+                className="w-full"
                 value={muhatap}
                 onChange={(e) => {
                   setMuhatap(e.target.value);
@@ -243,6 +318,7 @@ export default function BankaNakitCikis({ isOpen, onClose, onSaved, currentUserE
             <div className="space-y-2">
               <label>Ödenecek Çek</label>
               <select
+                className="w-full"
                 value={selectedChequeId}
                 onChange={(e) => {
                   setSelectedChequeId(e.target.value);
@@ -260,10 +336,25 @@ export default function BankaNakitCikis({ isOpen, onClose, onSaved, currentUserE
               </select>
             </div>
           )}
+          {isCardPayment && (
+            <div className="space-y-2">
+              <label>Ödeme Tutarı</label>
+              <input
+                className="w-full"
+                value={tutarText}
+                onChange={(e) => {
+                  setTutarText(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder="0,00"
+              />
+            </div>
+          )}
           {faturaRequired && (
             <div className="space-y-2">
               <label>Fatura Muhatabı</label>
               <select
+                className="w-full"
                 value={faturaMuhatabi}
                 onChange={(e) => {
                   setFaturaMuhatabi(e.target.value as FaturaMuhatap);
@@ -278,33 +369,53 @@ export default function BankaNakitCikis({ isOpen, onClose, onSaved, currentUserE
               </select>
             </div>
           )}
-          <div className="space-y-2">
-            <label>Açıklama</label>
-            <input
-              value={aciklama}
-              onChange={(e) => {
-                if (e.target.value.length <= 100) {
+          {!isCardPayment && (
+            <div className="space-y-2">
+              <label>Açıklama</label>
+              <input
+                className="w-full"
+                value={aciklama}
+                onChange={(e) => {
+                  if (e.target.value.length <= 100) {
+                    setAciklama(e.target.value);
+                    setDirty(true);
+                  }
+                }}
+                placeholder="Açıklama"
+              />
+            </div>
+          )}
+          {isCardPayment && (
+            <div className="space-y-2">
+              <label>Açıklama</label>
+              <input
+                className="w-full"
+                value={aciklama}
+                onChange={(e) => {
                   setAciklama(e.target.value);
                   setDirty(true);
-                }
-              }}
-              placeholder="Açıklama"
-            />
-          </div>
-          <div className="space-y-2">
-            <label>Tutar</label>
-            <input
-              value={tutarText}
-              onChange={(e) => {
-                setTutarText(e.target.value);
-                setDirty(true);
-              }}
-              placeholder="0,00"
-            />
-          </div>
+                }}
+                placeholder="Açıklama"
+              />
+            </div>
+          )}
+          {!isCardPayment && (
+            <div className="space-y-2">
+              <label>Tutar</label>
+              <input
+                className="w-full"
+                value={tutarText}
+                onChange={(e) => {
+                  setTutarText(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder="0,00"
+              />
+            </div>
+          )}
           <div className="space-y-2">
             <label>Kayıt Eden</label>
-            <input value={currentUserEmail} readOnly />
+            <input className="w-full" value={currentUserEmail} readOnly />
           </div>
         </div>
         <div className="flex justify-end space-x-3 mt-6">

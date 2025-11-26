@@ -16,20 +16,19 @@ interface Props {
 export default function KrediKartiIzlemeModal({ isOpen, onClose, creditCards, banks, globalSettings }: Props) {
   const rows = useMemo(() => {
     const today = todayIso();
+    const todayDate = new Date(`${today}T00:00:00`);
     return creditCards
       .filter((card) => card.aktifMi && card.sonEkstreBorcu > 0)
       .map((card) => {
         const bank = banks.find((b) => b.id === card.bankaId);
-        const [year, month] = today.split('-').map((n) => Number(n));
-        const currentMonthDue = new Date(Date.UTC(year, (month || 1) - 1, card.sonOdemeGunu));
-        const dueDate = currentMonthDue >= new Date(`${today}T00:00:00Z`)
-          ? currentMonthDue
-          : new Date(Date.UTC(year, (month || 1), card.sonOdemeGunu));
+        const year = todayDate.getFullYear();
+        const month = todayDate.getMonth();
+        const dueCurrent = new Date(year, month, card.sonOdemeGunu);
+        const dueDate = dueCurrent >= todayDate ? dueCurrent : new Date(year, month + 1, card.sonOdemeGunu);
         const dueIso = dueDate.toISOString().slice(0, 10);
         const daysLeft = diffInDays(today, dueIso);
         const limit = card.limit ?? card.kartLimit ?? 0;
-        const available =
-          card.kullanilabilirLimit ?? (limit - (card.guncelBorc || 0));
+        const available = card.kullanilabilirLimit ?? limit - (card.guncelBorc || 0);
         return {
           card,
           bankName: bank?.bankaAdi || '-',
@@ -39,7 +38,7 @@ export default function KrediKartiIzlemeModal({ isOpen, onClose, creditCards, ba
           available,
         };
       });
-  }, [creditCards, banks]);
+  }, [banks, creditCards]);
 
   if (!isOpen) return null;
 

@@ -143,6 +143,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
 
     creditCards
       .filter((c) => c.sonEkstreBorcu > 0)
+      .filter((card) => banks.find((b) => b.id === card.bankaId)?.krediKartiVarMi)
       .forEach((card) => {
         const todayDate = new Date(`${today}T00:00:00Z`);
         const year = todayDate.getUTCFullYear();
@@ -411,6 +412,48 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         }
       }
 
+      if (values.islemTuru === 'KREDI_KARTI_ODEME' && values.cardId) {
+        const card = creditCards.find((c) => c.id === values.cardId);
+        if (!card) {
+          setOpenForm(null);
+          return;
+        }
+        const oldGuncel = card.guncelBorc || 0;
+        const oldEkstre = card.sonEkstreBorcu || 0;
+        const ekstreDus = Math.min(values.tutar, oldEkstre);
+        const newGuncel = Math.max(0, oldGuncel - values.tutar);
+        const newEkstre = Math.max(0, oldEkstre - ekstreDus);
+        const limit = card.limit ?? card.kartLimit ?? 0;
+        setCreditCards((prev) =>
+          prev.map((c) =>
+            c.id === card.id
+              ? { ...c, guncelBorc: newGuncel, sonEkstreBorcu: newEkstre, kullanilabilirLimit: limit - newGuncel }
+              : c
+          )
+        );
+        const tx: DailyTransaction = {
+          id: generateId(),
+          isoDate: values.islemTarihiIso,
+          displayDate: isoToDisplay(values.islemTarihiIso),
+          documentNo,
+          type: 'Banka Çıkış - Kredi Kartı Ödemesi',
+          source: 'KK_ODEME',
+          counterparty: card.kartAdi,
+          description: values.aciklama || '',
+          incoming: 0,
+          outgoing: values.tutar,
+          balanceAfter: 0,
+          bankId: values.bankaId,
+          bankDelta: -values.tutar,
+          displayOutgoing: values.tutar,
+          createdAtIso: nowIso,
+          createdBy: currentUser.email,
+        };
+        addTransactions([tx]);
+        setOpenForm(null);
+        return;
+      }
+
       const tx: DailyTransaction = {
         id: generateId(),
         isoDate: values.islemTarihiIso,
@@ -460,16 +503,86 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
   };
 
   const handleKrediKartiTedarikciSaved = (values: KrediKartiTedarikciOdemeFormValues) => {
+    const card = creditCards.find((c) => c.id === values.cardId);
+    const supplier = suppliers.find((s) => s.id === values.supplierId);
+    if (!card || !supplier) {
+      setOpenForm(null);
+      return;
+    }
+    const ekstreAdd = values.isBeforeCutoff ? values.tutar : 0;
+    const limit = card.limit ?? card.kartLimit ?? 0;
+    const newGuncel = (card.guncelBorc || 0) + values.tutar;
+    const newEkstre = (card.sonEkstreBorcu || 0) + ekstreAdd;
     setCreditCards((prev) =>
-      prev.map((c) => (c.id === values.cardId ? { ...c, guncelBorc: c.guncelBorc + values.tutar, sonEkstreBorcu: c.sonEkstreBorcu + values.tutar } : c))
+      prev.map((c) =>
+        c.id === values.cardId
+          ? { ...c, guncelBorc: newGuncel, sonEkstreBorcu: newEkstre, kullanilabilirLimit: limit - newGuncel }
+          : c
+      )
     );
+    const nowIso = new Date().toISOString();
+    const tx: DailyTransaction = {
+      id: generateId(),
+      isoDate: values.islemTarihiIso,
+      displayDate: isoToDisplay(values.islemTarihiIso),
+      documentNo: `KK-TED-${Date.now()}`,
+      type: 'Kredi Kartı - Tedarikçi Ödemesi',
+      source: 'KK_TEDARIKCI',
+      counterparty: values.muhatap || `${supplier.kod} - ${supplier.ad}`,
+      description: values.aciklama || '',
+      incoming: 0,
+      outgoing: values.tutar,
+      balanceAfter: 0,
+      bankDelta: 0,
+      createdAtIso: nowIso,
+      createdBy: currentUser.email,
+    };
+    addTransactions([tx]);
     setOpenForm(null);
   };
 
   const handleKrediKartiMasrafSaved = (values: KrediKartiMasrafFormValues) => {
+    const card = creditCards.find((c) => c.id === values.cardId);
+    if (!card) {
+      setOpenForm(null);
+      return;
+    }
+    const ekstreAdd = values.isBeforeCutoff ? values.tutar : 0;
+    const limit = card.limit ?? card.kartLimit ?? 0;
+    const newGuncel = (card.guncelBorc || 0) + values.tutar;
+    const newEkstre = (card.sonEkstreBorcu || 0) + ekstreAdd;
     setCreditCards((prev) =>
-      prev.map((c) => (c.id === values.cardId ? { ...c, guncelBorc: c.guncelBorc + values.tutar, sonEkstreBorcu: c.sonEkstreBorcu + values.tutar } : c))
+      prev.map((c) =>
+        c.id === values.cardId
+          ? { ...c, guncelBorc: newGuncel, sonEkstreBorcu: newEkstre, kullanilabilirLimit: limit - newGuncel }
+          : c
+      )
     );
+    const meta =
+      values.masrafTuru === 'AKARYAKIT'
+        ? values.plaka
+        : values.masrafTuru === 'FATURA'
+        ? values.faturaAltTuru
+        : undefined;
+    const counterparty = values.aciklama || meta || values.masrafTuru;
+    const nowIso = new Date().toISOString();
+    const tx: DailyTransaction = {
+      id: generateId(),
+      isoDate: values.islemTarihiIso,
+      displayDate: isoToDisplay(values.islemTarihiIso),
+      documentNo: `KK-MSF-${Date.now()}`,
+      type: 'Kredi Kartı - Masraf',
+      source: values.masrafTuru,
+      counterparty: counterparty || 'Masraf',
+      description: values.aciklama || '',
+      incoming: 0,
+      outgoing: values.tutar,
+      balanceAfter: 0,
+      bankDelta: 0,
+      createdAtIso: nowIso,
+      createdBy: currentUser.email,
+    };
+    addTransactions([tx]);
     setOpenForm(null);
   };
 
