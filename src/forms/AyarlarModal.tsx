@@ -406,8 +406,13 @@ function CustomerTab({ customers, setCustomers, onDirty }: { customers: Customer
   const remove = (id: string) => setCustomers(customers.filter((c) => c.id !== id));
 
   const downloadCsv = () => {
-    const rows = ['kod,ad,aktifMi', ...customers.map((c) => `${c.kod},${c.ad},${c.aktifMi}`)];
-    const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const lines = [
+      'kod,ad,aktifMi',
+      ...customers.map((c) => [c.kod, c.ad, c.aktifMi ? 'true' : 'false'].join(',')),
+    ];
+    const bom = '\uFEFF';
+    const csvContent = bom + lines.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -420,30 +425,45 @@ function CustomerTab({ customers, setCustomers, onDirty }: { customers: Customer
     const reader = new FileReader();
     reader.onload = () => {
       const text = String(reader.result || '');
-      const lines = text.split(/\r?\n/).slice(1);
-      const updated = [...customers];
-      lines.forEach((line) => {
-        if (!line.trim()) return;
-        const [kodRaw, ad, aktifRaw] = line.split(',');
-        const kod = kodRaw?.trim();
-        if (!ad) return;
-        const aktifMi = aktifRaw?.trim() === 'true' || aktifRaw?.trim() === '1';
-        if (kod) {
-          const existing = updated.find((c) => c.kod === kod);
-          if (existing) {
-            existing.ad = ad.trim();
-            existing.aktifMi = aktifMi;
-          } else {
-            updated.push({ id: generateId(), kod, ad: ad.trim(), aktifMi });
-          }
+      const cleanText = text.replace(/^\uFEFF/, '');
+      const lines = cleanText.split(/\r?\n/).filter((line) => line.trim().length > 0);
+      if (!lines.length) return;
+      const header = lines[0].split(',').map((h) => h.trim().toLowerCase());
+      if (header[0] !== 'kod' || header[1] !== 'ad' || header[2] !== 'aktifmi') {
+        alert('Geçersiz CSV formatı. Başlıklar kod,ad,aktifMi olmalıdır.');
+        return;
+      }
+
+      const parsed: Customer[] = [];
+      const getNext = () => nextCode([...customers, ...parsed], 'MUST');
+
+      lines.slice(1).forEach((line) => {
+        const cols = line.split(',');
+        const kodRaw = cols[0]?.trim() ?? '';
+        const adRaw = cols[1]?.trim() ?? '';
+        const aktifMiRaw = cols[2]?.trim() ?? '';
+
+        if (!kodRaw && !adRaw) return;
+        if (!adRaw) return;
+
+        const raw = aktifMiRaw.toLowerCase();
+        let aktifMi: boolean;
+        if (raw === 'false' || raw === '0' || raw === 'hayır' || raw === 'hayir') {
+          aktifMi = false;
+        } else if (raw === 'true' || raw === '1' || raw === 'evet') {
+          aktifMi = true;
         } else {
-          updated.push({ id: generateId(), kod: nextCode(updated, 'MUST'), ad: ad.trim(), aktifMi });
+          aktifMi = true;
         }
+
+        const kod = kodRaw || getNext();
+        parsed.push({ id: generateId(), kod, ad: adRaw, aktifMi });
       });
-      setCustomers(updated);
+
+      setCustomers(parsed);
       onDirty();
     };
-    reader.readAsText(file);
+    reader.readAsText(file, 'UTF-8');
   };
 
   const triggerUpload = () => {
@@ -547,8 +567,13 @@ function SupplierTab({ suppliers, setSuppliers, onDirty }: { suppliers: Supplier
   const remove = (id: string) => setSuppliers(suppliers.filter((s) => s.id !== id));
 
   const downloadCsv = () => {
-    const rows = ['kod,ad,aktifMi', ...suppliers.map((s) => `${s.kod},${s.ad},${s.aktifMi}`)];
-    const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const lines = [
+      'kod,ad,aktifMi',
+      ...suppliers.map((s) => [s.kod, s.ad, s.aktifMi ? 'true' : 'false'].join(',')),
+    ];
+    const bom = '\uFEFF';
+    const csvContent = bom + lines.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -561,30 +586,45 @@ function SupplierTab({ suppliers, setSuppliers, onDirty }: { suppliers: Supplier
     const reader = new FileReader();
     reader.onload = () => {
       const text = String(reader.result || '');
-      const lines = text.split(/\r?\n/).slice(1);
-      const updated = [...suppliers];
-      lines.forEach((line) => {
-        if (!line.trim()) return;
-        const [kodRaw, ad, aktifRaw] = line.split(',');
-        const kod = kodRaw?.trim();
-        if (!ad) return;
-        const aktifMi = aktifRaw?.trim() === 'true' || aktifRaw?.trim() === '1';
-        if (kod) {
-          const existing = updated.find((s) => s.kod === kod);
-          if (existing) {
-            existing.ad = ad.trim();
-            existing.aktifMi = aktifMi;
-          } else {
-            updated.push({ id: generateId(), kod, ad: ad.trim(), aktifMi });
-          }
+      const cleanText = text.replace(/^\uFEFF/, '');
+      const lines = cleanText.split(/\r?\n/).filter((line) => line.trim().length > 0);
+      if (!lines.length) return;
+      const header = lines[0].split(',').map((h) => h.trim().toLowerCase());
+      if (header[0] !== 'kod' || header[1] !== 'ad' || header[2] !== 'aktifmi') {
+        alert('Geçersiz CSV formatı. Başlıklar kod,ad,aktifMi olmalıdır.');
+        return;
+      }
+
+      const parsed: Supplier[] = [];
+      const getNext = () => nextCode([...suppliers, ...parsed], 'TDRK');
+
+      lines.slice(1).forEach((line) => {
+        const cols = line.split(',');
+        const kodRaw = cols[0]?.trim() ?? '';
+        const adRaw = cols[1]?.trim() ?? '';
+        const aktifMiRaw = cols[2]?.trim() ?? '';
+
+        if (!kodRaw && !adRaw) return;
+        if (!adRaw) return;
+
+        const raw = aktifMiRaw.toLowerCase();
+        let aktifMi: boolean;
+        if (raw === 'false' || raw === '0' || raw === 'hayır' || raw === 'hayir') {
+          aktifMi = false;
+        } else if (raw === 'true' || raw === '1' || raw === 'evet') {
+          aktifMi = true;
         } else {
-          updated.push({ id: generateId(), kod: nextCode(updated, 'TDRK'), ad: ad.trim(), aktifMi });
+          aktifMi = true;
         }
+
+        const kod = kodRaw || getNext();
+        parsed.push({ id: generateId(), kod, ad: adRaw, aktifMi });
       });
-      setSuppliers(updated);
+
+      setSuppliers(parsed);
       onDirty();
     };
-    reader.readAsText(file);
+    reader.readAsText(file, 'UTF-8');
   };
 
   const triggerUpload = () => {
