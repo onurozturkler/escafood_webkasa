@@ -412,8 +412,8 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         }
       }
 
-      if (values.islemTuru === 'KREDI_KARTI_ODEME' && values.cardId) {
-        const card = creditCards.find((c) => c.id === values.cardId);
+      if (values.islemTuru === 'KREDI_KARTI_ODEME' && values.krediKartiId) {
+        const card = creditCards.find((c) => c.id === values.krediKartiId);
         if (!card) {
           setOpenForm(null);
           return;
@@ -938,6 +938,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         currentUserEmail={currentUser.email}
         banks={banks}
         cheques={cheques}
+        creditCards={creditCards}
       />
       <PosTahsilat
         isOpen={openForm === 'POS_TAHSILAT'}

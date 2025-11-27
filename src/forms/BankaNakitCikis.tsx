@@ -30,7 +30,7 @@ export interface BankaNakitCikisFormValues {
   kaydedenKullanici: string;
   krediId?: string | null;
   cekId?: string | null;
-  cardId?: string | null;
+  krediKartiId?: string | null;
 }
 
 interface Props {
@@ -38,9 +38,9 @@ interface Props {
   onClose: () => void;
   onSaved: (values: BankaNakitCikisFormValues) => void;
   currentUserEmail: string;
-  banks?: BankMaster[];
-  cheques?: Cheque[];
-  creditCards?: CreditCard[];
+  banks: BankMaster[];
+  cheques: Cheque[];
+  creditCards: CreditCard[];
 }
 
 const turLabels: Record<BankaNakitCikisTuru, string> = {
@@ -68,9 +68,9 @@ export default function BankaNakitCikis({
   onClose,
   onSaved,
   currentUserEmail,
-  banks = [],
-  cheques = [],
-  creditCards = [],
+  banks,
+  cheques,
+  creditCards,
 }: Props) {
   const safeBanks: BankMaster[] = Array.isArray(banks) ? banks : [];
   const safeCreditCards: CreditCard[] = Array.isArray(creditCards) ? creditCards : [];
@@ -85,7 +85,7 @@ export default function BankaNakitCikis({
   const [tutarText, setTutarText] = useState('');
   const [dirty, setDirty] = useState(false);
   const [selectedChequeId, setSelectedChequeId] = useState('');
-  const [cardId, setCardId] = useState('');
+  const [krediKartiId, setKrediKartiId] = useState('');
 
   const eligibleCheques = useMemo(
     () =>
@@ -100,6 +100,15 @@ export default function BankaNakitCikis({
     [safeBanks, safeCreditCards]
   );
 
+  const krediKartiOptions = useMemo(
+    () =>
+      eligibleCards.map((c) => ({
+        id: c.id,
+        label: `${c.kartAdi} – ${safeBanks.find((b) => b.id === c.bankaId)?.bankaAdi ?? '-'}`,
+      })),
+    [eligibleCards, safeBanks]
+  );
+
   useEffect(() => {
     if (isOpen) {
       setIslemTarihiIso(todayIso());
@@ -112,7 +121,7 @@ export default function BankaNakitCikis({
       setTutarText('');
       setDirty(false);
       setSelectedChequeId('');
-      setCardId('');
+      setKrediKartiId('');
     }
   }, [isOpen]);
 
@@ -130,7 +139,7 @@ export default function BankaNakitCikis({
     const today = todayIso();
     let tutar = parseTl(tutarText || '0') || 0;
     const selectedCheque = eligibleCheques.find((c) => c.id === selectedChequeId);
-    const selectedCard = isCardPayment ? eligibleCards.find((c) => c.id === cardId) : undefined;
+    const selectedCard = isCardPayment ? eligibleCards.find((c) => c.id === krediKartiId) : undefined;
     if (islemTuru === 'CEK_ODEME') {
       if (!selectedCheque) return;
       tutar = selectedCheque.tutar;
@@ -145,7 +154,7 @@ export default function BankaNakitCikis({
     if (muhatapRequired && muhatap.trim().length < 3) return;
     if (faturaRequired && !faturaMuhatabi) return;
     if (hedefRequired && !hedefBankaId) return;
-    if (isCardPayment && !cardId) return;
+    if (isCardPayment && !krediKartiId) return;
     if (islemTarihiIso > today) {
       alert('Gelecek tarihli işlem kaydedilemez.');
       return;
@@ -188,14 +197,14 @@ export default function BankaNakitCikis({
       kaydedenKullanici: currentUserEmail,
       krediId: null,
       cekId: islemTuru === 'CEK_ODEME' ? selectedChequeId : null,
-      cardId: isCardPayment ? cardId : null,
+      krediKartiId: isCardPayment ? krediKartiId : null,
     });
   };
 
   if (!isOpen) return null;
 
   const selectedCheque = eligibleCheques.find((c) => c.id === selectedChequeId);
-  const selectedCard = isCardPayment ? eligibleCards.find((c) => c.id === cardId) : undefined;
+  const selectedCard = isCardPayment ? eligibleCards.find((c) => c.id === krediKartiId) : undefined;
 
   return (
     <div className="modal-backdrop">
@@ -257,7 +266,7 @@ export default function BankaNakitCikis({
                 setIslemTuru(next);
                 setDirty(true);
                 setSelectedChequeId('');
-                setCardId('');
+                setKrediKartiId('');
                 if (next !== 'CEK_ODEME') setTutarText('');
               }}
             >
@@ -273,18 +282,18 @@ export default function BankaNakitCikis({
               <label>Kredi Kartı</label>
               <select
                 className="w-full"
-                value={cardId}
+                value={krediKartiId}
                 onChange={(e) => {
-                  setCardId(e.target.value);
+                  setKrediKartiId(e.target.value);
                   const card = eligibleCards.find((c) => c.id === e.target.value);
                   if (card) setBankaId(card.bankaId);
                   setDirty(true);
                 }}
               >
                 <option value="">Seçiniz</option>
-                {eligibleCards.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.kartAdi}
+                {krediKartiOptions.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.label}
                   </option>
                 ))}
               </select>
