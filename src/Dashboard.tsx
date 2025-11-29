@@ -759,15 +759,15 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
               <img
                 src="https://esca-food.com/image/cache/catalog/esca%20food%20logosu%20tek_-700x800.png"
                 alt="Esca Food"
-                className="h-[84px] object-contain"
+                className="h-[120px] object-contain"
               />
+            </div>
+            <div className="flex items-center space-x-3 text-sm text-slate-600">
               <img
                 src="https://esca-food.com/image/cache/catalog/web%20kasa%20logosu%20tek_-700x800.png"
                 alt="Web Kasa"
-                className="h-[84px] object-contain"
+                className="h-[120px] object-contain"
               />
-            </div>
-            <div className="flex items-center space-x-4 text-sm text-slate-600">
               <span>{currentUser.email}</span>
               <button
                 className="px-3 py-1 border border-slate-300 rounded-lg hover:bg-slate-100"

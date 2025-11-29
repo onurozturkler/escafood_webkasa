@@ -155,12 +155,12 @@ export default function KasaDefteriView({ transactions, onBackToDashboard }: Kas
             <img
               src="https://esca-food.com/image/cache/catalog/esca%20food%20logosu%20tek_-700x800.png"
               alt="Esca Food"
-              className="h-[60px] object-contain"
+              className="h-[84px] object-contain"
             />
             <img
               src="https://esca-food.com/image/cache/catalog/web%20kasa%20logosu%20tek_-700x800.png"
               alt="Web Kasa"
-              className="h-[60px] object-contain"
+              className="h-[84px] object-contain"
             />
             <div>
               <h1 className="text-2xl font-semibold">Kasa Defteri</h1>
