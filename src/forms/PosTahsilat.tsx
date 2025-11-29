@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PosTerminal } from '../models/pos';
 import { BankMaster } from '../models/bank';
+import { Supplier } from '../models/supplier';
+import FormRow from '../components/FormRow';
+import DateInput from '../components/DateInput';
+import MoneyInput from '../components/MoneyInput';
+import SearchableSelect from '../components/SearchableSelect';
 import { parseTl } from '../utils/money';
 import { todayIso } from '../utils/date';
 
@@ -12,8 +17,8 @@ export interface PosTahsilatFormValues {
   komisyonOrani: number;
   komisyonTutar: number;
   netTutar: number;
-  hesabaGecisTarihiIso: string;
-  muhatap?: string;
+  supplierId: string;
+  slipImageDataUrl?: string;
   aciklama?: string;
   kaydedenKullanici: string;
 }
@@ -25,17 +30,26 @@ interface Props {
   currentUserEmail: string;
   posTerminals: PosTerminal[];
   banks: BankMaster[];
+  suppliers: Supplier[];
 }
 
-export default function PosTahsilat({ isOpen, onClose, onSaved, currentUserEmail, posTerminals, banks }: Props) {
+export default function PosTahsilat({
+  isOpen,
+  onClose,
+  onSaved,
+  currentUserEmail,
+  posTerminals,
+  banks,
+  suppliers,
+}: Props) {
   const [islemTarihiIso, setIslemTarihiIso] = useState(todayIso());
   const [posId, setPosId] = useState('');
   const [bankaId, setBankaId] = useState('');
   const [komisyonOrani, setKomisyonOrani] = useState(0.02);
   const [brutText, setBrutText] = useState('');
-  const [hesabaGecisTarihiIso, setHesabaGecisTarihiIso] = useState(todayIso());
-  const [muhatap, setMuhatap] = useState('');
+  const [supplierId, setSupplierId] = useState('');
   const [aciklama, setAciklama] = useState('');
+  const [slipDataUrl, setSlipDataUrl] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
@@ -45,16 +59,19 @@ export default function PosTahsilat({ isOpen, onClose, onSaved, currentUserEmail
       setBankaId('');
       setKomisyonOrani(0.02);
       setBrutText('');
-      setHesabaGecisTarihiIso(todayIso());
-      setMuhatap('');
+      setSupplierId('');
       setAciklama('');
+      setSlipDataUrl(null);
       setDirty(false);
     }
   }, [isOpen]);
 
   useEffect(() => {
     const pos = posTerminals.find((p) => p.id === posId);
-    if (pos) setKomisyonOrani(pos.komisyonOrani);
+    if (pos) {
+      setKomisyonOrani(pos.komisyonOrani);
+      setBankaId(pos.bankaId);
+    }
   }, [posId, posTerminals]);
 
   const brut = useMemo(() => parseTl(brutText || '0') || 0, [brutText]);
@@ -66,9 +83,42 @@ export default function PosTahsilat({ isOpen, onClose, onSaved, currentUserEmail
     onClose();
   };
 
+  const supplierOptions = useMemo(
+    () => suppliers.map((s) => ({ id: s.id, label: `${s.kod} - ${s.ad}` })),
+    [suppliers]
+  );
+
+  const selectedBankName = useMemo(() => banks.find((b) => b.id === bankaId)?.hesapAdi || '', [bankaId, banks]);
+
+  const handleSlipChange = (file?: File | null) => {
+    if (!file) {
+      setSlipDataUrl(null);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setSlipDataUrl(typeof reader.result === 'string' ? reader.result : null);
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleSave = () => {
-    if (!islemTarihiIso || !posId || !bankaId || brut <= 0) return;
-    if (!window.confirm('Bu işlemi kaydetmek istediğinize emin misiniz?')) return;
+    if (!islemTarihiIso || !posId || !bankaId || brut <= 0 || !supplierId) return;
+    if (!slipDataUrl) {
+      alert('Slip görseli eklenmeden POS tahsilat kaydedilemez.');
+      return;
+    }
+    const message = [
+      'POS tahsilat kaydedilsin mi?',
+      '',
+      `Tarih: ${islemTarihiIso}`,
+      `POS: ${posTerminals.find((p) => p.id === posId)?.posAdi || '-'}`,
+      `Banka: ${selectedBankName || '-'}`,
+      `Brüt: ${brut.toFixed(2)}`,
+      `Komisyon: ${komisyonTutar.toFixed(2)}`,
+      `Net: ${netTutar.toFixed(2)}`,
+    ].join('\n');
+    if (!window.confirm(message)) return;
     onSaved({
       islemTarihiIso,
       posId,
@@ -77,8 +127,8 @@ export default function PosTahsilat({ isOpen, onClose, onSaved, currentUserEmail
       komisyonOrani,
       komisyonTutar,
       netTutar,
-      hesabaGecisTarihiIso,
-      muhatap: muhatap || undefined,
+      supplierId,
+      slipImageDataUrl: slipDataUrl || undefined,
       aciklama: aciklama || undefined,
       kaydedenKullanici: currentUserEmail,
     });
@@ -94,13 +144,24 @@ export default function PosTahsilat({ isOpen, onClose, onSaved, currentUserEmail
           <button onClick={handleClose}>✕</button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label>İşlem Tarihi</label>
-            <input type="date" value={islemTarihiIso} onChange={(e) => { setIslemTarihiIso(e.target.value); setDirty(true); }} />
-          </div>
-          <div className="space-y-2">
-            <label>POS</label>
-            <select value={posId} onChange={(e) => { setPosId(e.target.value); setDirty(true); }}>
+          <FormRow label="İşlem Tarihi" required>
+            <DateInput
+              value={islemTarihiIso}
+              onChange={(v) => {
+                setIslemTarihiIso(v);
+                setDirty(true);
+              }}
+            />
+          </FormRow>
+          <FormRow label="POS" required>
+            <select
+              className="form-input"
+              value={posId}
+              onChange={(e) => {
+                setPosId(e.target.value);
+                setDirty(true);
+              }}
+            >
               <option value="">Seçiniz</option>
               {posTerminals.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -108,62 +169,74 @@ export default function PosTahsilat({ isOpen, onClose, onSaved, currentUserEmail
                 </option>
               ))}
             </select>
-          </div>
-          <div className="space-y-2">
-            <label>Banka</label>
-            <select value={bankaId} onChange={(e) => { setBankaId(e.target.value); setDirty(true); }}>
-              <option value="">Seçiniz</option>
-              {banks.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.hesapAdi}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-2">
-            <label>Brüt Tutar</label>
-            <input value={brutText} onChange={(e) => { setBrutText(e.target.value); setDirty(true); }} placeholder="0,00" />
-          </div>
-          <div className="space-y-2">
-            <label>Komisyon Oranı</label>
+          </FormRow>
+          <FormRow label="Banka" required>
+            <input className="form-input" value={selectedBankName} readOnly />
+          </FormRow>
+          <FormRow label="Tedarikçi" required>
+            <SearchableSelect
+              valueId={supplierId || null}
+              onChange={(id) => {
+                setSupplierId(id || '');
+                setDirty(true);
+              }}
+              options={supplierOptions}
+              placeholder="Tedarikçi seçin"
+            />
+          </FormRow>
+          <FormRow label="Brüt Tutar" required>
+            <MoneyInput
+              value={brut}
+              onChange={(v) => {
+                setBrutText(v != null ? v.toString() : '');
+                setDirty(true);
+              }}
+              placeholder="0,00"
+            />
+          </FormRow>
+          <FormRow label="Komisyon Oranı" required>
             <input
+              className="form-input"
               value={komisyonOrani}
-              onChange={(e) => { setKomisyonOrani(Number(e.target.value)); setDirty(true); }}
+              onChange={(e) => {
+                setKomisyonOrani(Number(e.target.value));
+                setDirty(true);
+              }}
               type="number"
               step="0.001"
             />
-          </div>
-          <div className="space-y-2">
-            <label>Komisyon Tutarı</label>
-            <input value={komisyonTutar.toFixed(2)} readOnly />
-          </div>
-          <div className="space-y-2">
-            <label>Net Tutar</label>
-            <input value={netTutar.toFixed(2)} readOnly />
-          </div>
-          <div className="space-y-2">
-            <label>Hesaba Geçiş Tarihi</label>
+          </FormRow>
+          <FormRow label="Komisyon Tutarı">
+            <input className="form-input" value={komisyonTutar.toFixed(2)} readOnly />
+          </FormRow>
+          <FormRow label="Net Tutar">
+            <input className="form-input" value={netTutar.toFixed(2)} readOnly />
+          </FormRow>
+          <FormRow label="Açıklama">
             <input
-              type="date"
-              value={hesabaGecisTarihiIso}
+              className="form-input"
+              value={aciklama}
               onChange={(e) => {
-                setHesabaGecisTarihiIso(e.target.value);
+                setAciklama(e.target.value);
+                setDirty(true);
+              }}
+              placeholder="Açıklama"
+            />
+          </FormRow>
+          <FormRow label="Slip Görseli" required>
+            <input
+              className="form-input"
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                handleSlipChange(e.target.files?.[0]);
                 setDirty(true);
               }}
             />
-          </div>
-          <div className="space-y-2">
-            <label>Muhatap</label>
-            <input value={muhatap} onChange={(e) => { setMuhatap(e.target.value); setDirty(true); }} placeholder="Muhatap" />
-          </div>
-          <div className="space-y-2">
-            <label>Açıklama</label>
-            <input value={aciklama} onChange={(e) => { setAciklama(e.target.value); setDirty(true); }} placeholder="Açıklama" />
-          </div>
-          <div className="space-y-2">
-            <label>Kayıt Eden</label>
-            <input value={currentUserEmail} readOnly />
-          </div>
+          </FormRow>
+          <FormRow label="Kayıt Eden">
+            <input className="form-input" value={currentUserEmail} readOnly />
+          </FormRow>
         </div>
         <div className="flex justify-end space-x-3 mt-6">
           <button className="px-4 py-2 bg-slate-200 rounded-lg" onClick={handleClose}>

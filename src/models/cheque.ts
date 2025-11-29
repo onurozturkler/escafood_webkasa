@@ -22,4 +22,5 @@ export interface Cheque {
   status: ChequeStatus;
   kasaMi: boolean;
   aciklama?: string;
+  imageUrl?: string;
 }

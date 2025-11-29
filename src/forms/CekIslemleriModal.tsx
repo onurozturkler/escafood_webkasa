@@ -96,6 +96,7 @@ export default function CekIslemleriModal({
   const [girisTutar, setGirisTutar] = useState<number | null>(null);
   const [girisVadeTarihi, setGirisVadeTarihi] = useState(todayIso());
   const [girisAciklama, setGirisAciklama] = useState('');
+  const [girisCekImage, setGirisCekImage] = useState<string | null>(null);
 
   const [cikisIslemTarihi, setCikisIslemTarihi] = useState(todayIso());
   const [cikisSelectedChequeId, setCikisSelectedChequeId] = useState('');
@@ -112,6 +113,7 @@ export default function CekIslemleriModal({
   const [yeniTutar, setYeniTutar] = useState<number | null>(null);
   const [yeniVadeTarihi, setYeniVadeTarihi] = useState(todayIso());
   const [yeniAciklama, setYeniAciklama] = useState('');
+  const [yeniCekImage, setYeniCekImage] = useState<string | null>(null);
 
   const [reportStart, setReportStart] = useState('');
   const [reportEnd, setReportEnd] = useState('');
@@ -142,6 +144,7 @@ export default function CekIslemleriModal({
       setGirisTutar(null);
       setGirisVadeTarihi(todayIso());
       setGirisAciklama('');
+      setGirisCekImage(null);
 
       setCikisIslemTarihi(todayIso());
       setCikisSelectedChequeId('');
@@ -158,6 +161,7 @@ export default function CekIslemleriModal({
       setYeniTutar(null);
       setYeniVadeTarihi(todayIso());
       setYeniAciklama('');
+      setYeniCekImage(null);
     }
   }, [isOpen, initialTab]);
 
@@ -242,8 +246,34 @@ export default function CekIslemleriModal({
     return 'Dolaşımda';
   };
 
+  const handleGirisImageChange = (file?: File | null) => {
+    if (!file) {
+      setGirisCekImage(null);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setGirisCekImage(typeof reader.result === 'string' ? reader.result : null);
+    reader.readAsDataURL(file);
+    setDirty(true);
+  };
+
+  const handleYeniImageChange = (file?: File | null) => {
+    if (!file) {
+      setYeniCekImage(null);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setYeniCekImage(typeof reader.result === 'string' ? reader.result : null);
+    reader.readAsDataURL(file);
+    setDirty(true);
+  };
+
   const handleSaveGiris = () => {
     if (!girisCustomerId || !girisCekNo || !girisBankaAdi || !girisTutar || girisTutar <= 0 || !girisVadeTarihi) return;
+    if (!girisCekImage) {
+      alert('Çek görseli eklenmeden bu işlem kaydedilemez.');
+      return;
+    }
     const newCheque: Cheque = {
       id: generateId(),
       cekNo: girisCekNo,
@@ -256,6 +286,7 @@ export default function CekIslemleriModal({
       status: 'KASADA',
       kasaMi: true,
       aciklama: girisAciklama || undefined,
+      imageUrl: girisCekImage || undefined,
     };
     onSaved({ updatedCheques: [...cheques, newCheque] });
   };
@@ -418,6 +449,10 @@ export default function CekIslemleriModal({
     const bank = banks.find((b) => b.id === yeniBankId && b.cekKarnesiVarMi);
     const supplier = suppliers.find((s) => s.id === yeniSupplierId);
     if (!bank || !supplier || !yeniCekNo || !yeniTutar || yeniTutar <= 0 || !yeniVadeTarihi) return;
+    if (!yeniCekImage) {
+      alert('Çek görseli eklenmeden bu işlem kaydedilemez.');
+      return;
+    }
     const newCheque: Cheque = {
       id: generateId(),
       cekNo: yeniCekNo,
@@ -431,6 +466,7 @@ export default function CekIslemleriModal({
       status: 'ODEMEDE',
       kasaMi: false,
       aciklama: yeniAciklama || undefined,
+      imageUrl: yeniCekImage || undefined,
     };
     onSaved({ updatedCheques: [...cheques, newCheque] });
   };
@@ -543,6 +579,14 @@ export default function CekIslemleriModal({
                     setGirisVadeTarihi(v);
                     setDirty(true);
                   }}
+                />
+              </FormRow>
+              <FormRow label="Çek Görseli" required>
+                <input
+                  className="form-input"
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => handleGirisImageChange(e.target.files?.[0])}
                 />
               </FormRow>
               <FormRow label="Açıklama">
@@ -752,6 +796,14 @@ export default function CekIslemleriModal({
                     setYeniVadeTarihi(v);
                     setDirty(true);
                   }}
+                />
+              </FormRow>
+              <FormRow label="Çek Görseli" required>
+                <input
+                  className="form-input"
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => handleYeniImageChange(e.target.files?.[0])}
                 />
               </FormRow>
               <FormRow label="Açıklama">

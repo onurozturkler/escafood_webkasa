@@ -499,27 +499,52 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
   };
 
   const handlePosTahsilatSaved = (values: PosTahsilatFormValues) => {
+    const supplier = suppliers.find((s) => s.id === values.supplierId);
+    const bank = banks.find((b) => b.id === values.bankaId);
+    if (!supplier || !bank) {
+      setOpenForm(null);
+      return;
+    }
     const documentNo = getNextBelgeNo('BNK-GRS', values.islemTarihiIso, dailyTransactions);
     const nowIso = new Date().toISOString();
-    const tx: DailyTransaction = {
+    const counterparty = `${supplier.kod} - ${supplier.ad}`;
+    const brutTx: DailyTransaction = {
       id: generateId(),
       isoDate: values.islemTarihiIso,
       displayDate: isoToDisplay(values.islemTarihiIso),
       documentNo,
-      type: 'POS Tahsilat',
+      type: 'POS Tahsilat - Brüt',
       source: 'POS',
-      counterparty: values.muhatap || 'POS',
+      counterparty,
       description: values.aciklama || '',
       incoming: 0,
       outgoing: 0,
       balanceAfter: 0,
       bankId: values.bankaId,
       bankDelta: values.netTutar,
-      displayIncoming: values.netTutar,
+      displayIncoming: values.brutTutar,
       createdAtIso: nowIso,
       createdBy: currentUser.email,
     };
-    addTransactions([tx]);
+    const komisyonTx: DailyTransaction = {
+      id: generateId(),
+      isoDate: values.islemTarihiIso,
+      displayDate: isoToDisplay(values.islemTarihiIso),
+      documentNo: `${documentNo}-KOM`,
+      type: 'POS Komisyonu',
+      source: 'POS',
+      counterparty,
+      description: values.aciklama || 'POS Komisyonu',
+      incoming: 0,
+      outgoing: 0,
+      balanceAfter: 0,
+      bankId: values.bankaId,
+      bankDelta: 0,
+      displayOutgoing: values.komisyonTutar,
+      createdAtIso: nowIso,
+      createdBy: currentUser.email,
+    };
+    addTransactions([brutTx, komisyonTx]);
     setOpenForm(null);
   };
 
@@ -968,6 +993,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         currentUserEmail={currentUser.email}
         posTerminals={posTerminals}
         banks={banks}
+        suppliers={suppliers}
       />
       <KrediKartiTedarikciOdeme
         isOpen={openForm === 'KK_TEDARIKCI'}
