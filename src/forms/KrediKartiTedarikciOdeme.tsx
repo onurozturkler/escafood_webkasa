@@ -92,7 +92,7 @@ export default function KrediKartiTedarikciOdeme({
   const handleSave = () => {
     if (!islemTarihiIso || !cardId || !supplierId || !selectedCard || !selectedSupplier) return;
     if (!tutar || tutar <= 0) return;
-    const dayOfMonth = new Date(islemTarihiIso).getDate();
+    const dayOfMonth = parseInt(islemTarihiIso.split('-')[2] || '0', 10);
     const isBeforeCutoff = dayOfMonth <= (selectedCard.hesapKesimGunu || 0);
     const oldGuncel = selectedCard.guncelBorc || 0;
     const oldEkstre = selectedCard.sonEkstreBorcu || 0;

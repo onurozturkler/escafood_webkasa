@@ -99,7 +99,7 @@ export default function KrediKartiMasraf({
     if (masrafTuru === 'AKARYAKIT' && !plaka.trim()) return;
     if (masrafTuru === 'FATURA' && faturaAltTuru === 'DIGER' && !aciklama.trim()) return;
 
-    const dayOfMonth = new Date(islemTarihiIso).getDate();
+    const dayOfMonth = parseInt(islemTarihiIso.split('-')[2] || '0', 10);
     const isBeforeCutoff = dayOfMonth <= (selectedCard.hesapKesimGunu || 0);
     const oldGuncel = selectedCard.guncelBorc || 0;
     const oldEkstre = selectedCard.sonEkstreBorcu || 0;
