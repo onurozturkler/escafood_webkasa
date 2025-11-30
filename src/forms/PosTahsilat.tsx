@@ -6,7 +6,6 @@ import FormRow from '../components/FormRow';
 import DateInput from '../components/DateInput';
 import MoneyInput from '../components/MoneyInput';
 import SearchableSelect from '../components/SearchableSelect';
-import { parseTl } from '../utils/money';
 import { todayIso } from '../utils/date';
 
 export interface PosTahsilatFormValues {
@@ -46,7 +45,7 @@ export default function PosTahsilat({
   const [posId, setPosId] = useState('');
   const [bankaId, setBankaId] = useState('');
   const [komisyonOrani, setKomisyonOrani] = useState(0.02);
-  const [brutText, setBrutText] = useState('');
+  const [brut, setBrut] = useState<number | null>(null);
   const [customerId, setCustomerId] = useState('');
   const [aciklama, setAciklama] = useState('');
   const [slipDataUrl, setSlipDataUrl] = useState<string | null>(null);
@@ -58,7 +57,7 @@ export default function PosTahsilat({
       setPosId('');
       setBankaId('');
       setKomisyonOrani(0.02);
-      setBrutText('');
+      setBrut(null);
       setCustomerId('');
       setAciklama('');
       setSlipDataUrl(null);
@@ -74,9 +73,8 @@ export default function PosTahsilat({
     }
   }, [posId, posTerminals]);
 
-  const brut = useMemo(() => parseTl(brutText || '0') || 0, [brutText]);
-  const komisyonTutar = useMemo(() => brut * komisyonOrani, [brut, komisyonOrani]);
-  const netTutar = useMemo(() => brut - komisyonTutar, [brut, komisyonTutar]);
+  const komisyonTutar = useMemo(() => (brut ?? 0) * komisyonOrani, [brut, komisyonOrani]);
+  const netTutar = useMemo(() => (brut ?? 0) - komisyonTutar, [brut, komisyonTutar]);
 
   const handleClose = () => {
     if (dirty && !window.confirm('Kaydedilmemiş bilgiler var. Kapatmak istiyor musunuz?')) return;
@@ -103,7 +101,7 @@ export default function PosTahsilat({
   };
 
   const handleSave = () => {
-    if (!islemTarihiIso || !posId || !bankaId || brut <= 0 || !customerId) return;
+    if (!islemTarihiIso || !posId || !bankaId || !brut || brut <= 0 || !customerId) return;
     if (!slipDataUrl) {
       alert('Slip görseli eklenmeden POS tahsilat kaydedilemez.');
       return;
@@ -188,7 +186,7 @@ export default function PosTahsilat({
             <MoneyInput
               value={brut}
               onChange={(v) => {
-                setBrutText(v != null ? v.toString() : '');
+                setBrut(v);
                 setDirty(true);
               }}
               placeholder="0,00"
