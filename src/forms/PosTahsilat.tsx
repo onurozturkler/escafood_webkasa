@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PosTerminal } from '../models/pos';
 import { BankMaster } from '../models/bank';
-import { Supplier } from '../models/supplier';
+import { Customer } from '../models/customer';
 import FormRow from '../components/FormRow';
 import DateInput from '../components/DateInput';
 import MoneyInput from '../components/MoneyInput';
@@ -17,7 +17,7 @@ export interface PosTahsilatFormValues {
   komisyonOrani: number;
   komisyonTutar: number;
   netTutar: number;
-  supplierId: string;
+  customerId: string;
   slipImageDataUrl?: string;
   aciklama?: string;
   kaydedenKullanici: string;
@@ -30,7 +30,7 @@ interface Props {
   currentUserEmail: string;
   posTerminals: PosTerminal[];
   banks: BankMaster[];
-  suppliers: Supplier[];
+  customers: Customer[];
 }
 
 export default function PosTahsilat({
@@ -40,14 +40,14 @@ export default function PosTahsilat({
   currentUserEmail,
   posTerminals,
   banks,
-  suppliers,
+  customers,
 }: Props) {
   const [islemTarihiIso, setIslemTarihiIso] = useState(todayIso());
   const [posId, setPosId] = useState('');
   const [bankaId, setBankaId] = useState('');
   const [komisyonOrani, setKomisyonOrani] = useState(0.02);
   const [brutText, setBrutText] = useState('');
-  const [supplierId, setSupplierId] = useState('');
+  const [customerId, setCustomerId] = useState('');
   const [aciklama, setAciklama] = useState('');
   const [slipDataUrl, setSlipDataUrl] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -59,7 +59,7 @@ export default function PosTahsilat({
       setBankaId('');
       setKomisyonOrani(0.02);
       setBrutText('');
-      setSupplierId('');
+      setCustomerId('');
       setAciklama('');
       setSlipDataUrl(null);
       setDirty(false);
@@ -83,9 +83,9 @@ export default function PosTahsilat({
     onClose();
   };
 
-  const supplierOptions = useMemo(
-    () => suppliers.map((s) => ({ id: s.id, label: `${s.kod} - ${s.ad}` })),
-    [suppliers]
+  const customerOptions = useMemo(
+    () => customers.map((c) => ({ id: c.id, label: `${c.kod} - ${c.ad}` })),
+    [customers]
   );
 
   const selectedBankName = useMemo(() => banks.find((b) => b.id === bankaId)?.hesapAdi || '', [bankaId, banks]);
@@ -103,7 +103,7 @@ export default function PosTahsilat({
   };
 
   const handleSave = () => {
-    if (!islemTarihiIso || !posId || !bankaId || brut <= 0 || !supplierId) return;
+    if (!islemTarihiIso || !posId || !bankaId || brut <= 0 || !customerId) return;
     if (!slipDataUrl) {
       alert('Slip görseli eklenmeden POS tahsilat kaydedilemez.');
       return;
@@ -127,7 +127,7 @@ export default function PosTahsilat({
       komisyonOrani,
       komisyonTutar,
       netTutar,
-      supplierId,
+      customerId,
       slipImageDataUrl: slipDataUrl || undefined,
       aciklama: aciklama || undefined,
       kaydedenKullanici: currentUserEmail,
@@ -173,15 +173,15 @@ export default function PosTahsilat({
           <FormRow label="Banka" required>
             <input className="form-input" value={selectedBankName} readOnly />
           </FormRow>
-          <FormRow label="Tedarikçi" required>
+          <FormRow label="Muhatap" required>
             <SearchableSelect
-              valueId={supplierId || null}
+              valueId={customerId || null}
               onChange={(id) => {
-                setSupplierId(id || '');
+                setCustomerId(id || '');
                 setDirty(true);
               }}
-              options={supplierOptions}
-              placeholder="Tedarikçi seçin"
+              options={customerOptions}
+              placeholder="Müşteri seçin"
             />
           </FormRow>
           <FormRow label="Brüt Tutar" required>

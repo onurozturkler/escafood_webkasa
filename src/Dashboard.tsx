@@ -499,15 +499,15 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
   };
 
   const handlePosTahsilatSaved = (values: PosTahsilatFormValues) => {
-    const supplier = suppliers.find((s) => s.id === values.supplierId);
+    const customer = customers.find((c) => c.id === values.customerId);
     const bank = banks.find((b) => b.id === values.bankaId);
-    if (!supplier || !bank) {
+    if (!customer || !bank) {
       setOpenForm(null);
       return;
     }
     const documentNo = getNextBelgeNo('BNK-GRS', values.islemTarihiIso, dailyTransactions);
     const nowIso = new Date().toISOString();
-    const counterparty = `${supplier.kod} - ${supplier.ad}`;
+    const counterparty = `${customer.kod} - ${customer.ad}`;
     const brutTx: DailyTransaction = {
       id: generateId(),
       isoDate: values.islemTarihiIso,
@@ -993,7 +993,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         currentUserEmail={currentUser.email}
         posTerminals={posTerminals}
         banks={banks}
-        suppliers={suppliers}
+        customers={customers}
       />
       <KrediKartiTedarikciOdeme
         isOpen={openForm === 'KK_TEDARIKCI'}
