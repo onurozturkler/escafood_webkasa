@@ -717,7 +717,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
             },
             {
               title: 'Ayarlar',
-              color: 'bg-gray-800 hover:bg-gray-700',
+              color: 'bg-[#FFCC1F] text-slate-900 hover:bg-[#e6b81c]',
               key: 'ayar',
               items: [
                 { label: 'Bankalar', form: 'AYARLAR', tab: 'BANKALAR' },
