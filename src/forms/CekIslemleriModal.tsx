@@ -4,7 +4,7 @@ import DateInput from '../components/DateInput';
 import MoneyInput from '../components/MoneyInput';
 import SearchableSelect from '../components/SearchableSelect';
 import { BankMaster } from '../models/bank';
-import { Cheque, ChequeStatus } from '../models/cheque';
+import { Cheque, ChequeStatus, normalizeLegacyChequeStatus } from '../models/cheque';
 import { Customer } from '../models/customer';
 import { DailyTransaction } from '../models/transaction';
 import { Supplier } from '../models/supplier';
@@ -123,11 +123,8 @@ export default function CekIslemleriModal({
     'KASADA',
     'BANKADA_TAHSILDE',
     'ODEMEDE',
-    'TAHSIL_OLDU',
-    'ODEME_YAPILDI',
+    'TAHSIL_EDILDI',
     'KARSILIKSIZ',
-    'IPTAL',
-    'CIKMIS',
   ]);
   const [reportMusteriId, setReportMusteriId] = useState('');
   const [reportTedarikciId, setReportTedarikciId] = useState('');
@@ -188,15 +185,21 @@ export default function CekIslemleriModal({
     onClose();
   };
 
+  const normalizedCheques = useMemo(() => {
+    return cheques.map((c) => ({ ...c, status: normalizeLegacyChequeStatus(c.status) }));
+  }, [cheques]);
+
   const customerOptions = customers.map((c) => ({ id: c.id, label: `${c.kod} - ${c.ad}` }));
   const supplierOptions = suppliers.map((s) => ({ id: s.id, label: `${s.kod} - ${s.ad}` }));
 
   const cikisEligibleCheques = useMemo(() => {
-    return [...cheques.filter((c) => c.status === 'KASADA')].sort((a, b) => a.vadeTarihi.localeCompare(b.vadeTarihi));
-  }, [cheques]);
+    return [...normalizedCheques.filter((c) => c.status === 'KASADA')].sort((a, b) =>
+      a.vadeTarihi.localeCompare(b.vadeTarihi)
+    );
+  }, [normalizedCheques]);
 
   const reportRows = useMemo(() => {
-    const base = cheques
+    const base = normalizedCheques
       .filter((c) => (reportStart ? c.vadeTarihi >= reportStart : true))
       .filter((c) => (reportEnd ? c.vadeTarihi <= reportEnd : true))
       .filter((c) => reportStatuses.includes(c.status))
@@ -212,7 +215,7 @@ export default function CekIslemleriModal({
     });
     return sorted;
   }, [
-    cheques,
+    normalizedCheques,
     reportEnd,
     reportMusteriId,
     reportSortDir,
@@ -228,19 +231,14 @@ export default function CekIslemleriModal({
         return 'Kasada';
       case 'BANKADA_TAHSILDE':
         return 'Bankada (Tahsilde)';
-      case 'TAHSIL_OLDU':
-        return 'Tahsil Oldu';
+      case 'TAHSIL_EDILDI':
+        return 'Tahsil Edildi';
       case 'ODEMEDE':
         return 'Ödemede / Dolaşımda';
-      case 'ODEME_YAPILDI':
-        return 'Ödeme Yapıldı';
       case 'KARSILIKSIZ':
         return 'Karşılıksız';
-      case 'IPTAL':
-        return 'İptal';
-      case 'CIKMIS':
       default:
-        return 'Çıkmış';
+        return 'Kasada';
     }
   };
 
@@ -308,7 +306,7 @@ export default function CekIslemleriModal({
       imageDataUrl: girisChequeDataUrl || undefined,
       imageFileName: girisChequeFile?.name,
     };
-    onSaved({ updatedCheques: [...cheques, newCheque] });
+    onSaved({ updatedCheques: [...normalizedCheques, newCheque] });
   };
 
   const handleSaveCikis = () => {
@@ -317,13 +315,13 @@ export default function CekIslemleriModal({
     if (cikisReason === 'TAHSIL_BANKADAN' && !cikisTahsilBankasiId) return;
     if (cikisReason === 'TEDARIKCI_VERILDI' && !cikisSupplierId) return;
 
-    let newStatus: ChequeStatus = 'CIKMIS';
+    let newStatus: ChequeStatus = 'ODEMEDE';
     switch (cikisReason) {
       case 'TAHSIL_ELDEN':
-        newStatus = 'TAHSIL_OLDU';
+        newStatus = 'TAHSIL_EDILDI';
         break;
       case 'TAHSIL_BANKADAN':
-        newStatus = 'BANKADA_TAHSILDE';
+        newStatus = 'TAHSIL_EDILDI';
         break;
       case 'TEDARIKCI_VERILDI':
         newStatus = 'ODEMEDE';
@@ -332,18 +330,18 @@ export default function CekIslemleriModal({
         newStatus = 'KARSILIKSIZ';
         break;
       case 'IADE':
-        newStatus = 'IPTAL';
+        newStatus = 'KASADA';
         break;
       case 'DIGER':
       default:
-        newStatus = 'CIKMIS';
+        newStatus = 'ODEMEDE';
         break;
     }
 
     const tahsilBank = cikisReason === 'TAHSIL_BANKADAN' ? banks.find((b) => b.id === cikisTahsilBankasiId) : undefined;
     const tedarikci = cikisReason === 'TEDARIKCI_VERILDI' ? suppliers.find((s) => s.id === cikisSupplierId) : undefined;
 
-    const updatedCheques = cheques.map((c) => {
+    const updatedCheques = normalizedCheques.map((c) => {
       if (c.id !== selectedCheque.id) return c;
       return {
         ...c,
@@ -366,8 +364,8 @@ export default function CekIslemleriModal({
         isoDate: cikisIslemTarihi,
         displayDate: isoToDisplay(cikisIslemTarihi),
         documentNo: `CEK-${selectedCheque.cekNo}`,
-        type: 'Kasadan Çek Çıkışı',
-        source: 'TAHSIL_ELDEN',
+        type: 'CEK_TAHSIL_BANKA',
+        source: 'CEK',
         counterparty: 'Tahsil Elden',
         description,
         incoming: selectedCheque.tutar,
@@ -383,8 +381,8 @@ export default function CekIslemleriModal({
         isoDate: cikisIslemTarihi,
         displayDate: isoToDisplay(cikisIslemTarihi),
         documentNo: `CEK-${selectedCheque.cekNo}`,
-        type: 'Kasadan Çek Çıkışı - Tahsil Bankadan',
-        source: 'TAHSIL_BANKADAN',
+        type: 'CEK_TAHSIL_BANKA',
+        source: 'CEK',
         counterparty: tahsilBank.hesapAdi || tahsilBank.bankaAdi || 'Banka',
         description,
         incoming: 0,
@@ -402,8 +400,8 @@ export default function CekIslemleriModal({
         isoDate: cikisIslemTarihi,
         displayDate: isoToDisplay(cikisIslemTarihi),
         documentNo: `CEK-${selectedCheque.cekNo}`,
-        type: 'Kasadan Çek Çıkışı',
-        source: 'TEDARIKCIYE_VERILDI',
+        type: 'CEK_ODENMESI',
+        source: 'CEK',
         counterparty: tedarikci ? `${tedarikci.kod} - ${tedarikci.ad}` : 'Tedarikçi',
         description,
         incoming: 0,
@@ -418,8 +416,8 @@ export default function CekIslemleriModal({
         isoDate: cikisIslemTarihi,
         displayDate: isoToDisplay(cikisIslemTarihi),
         documentNo: `CEK-${selectedCheque.cekNo}`,
-        type: 'Kasadan Çek Çıkışı',
-        source: 'YAZILDI',
+        type: 'CEK_ODENMESI',
+        source: 'CEK',
         counterparty: 'Karşılıksız',
         description,
         incoming: 0,
@@ -434,8 +432,8 @@ export default function CekIslemleriModal({
         isoDate: cikisIslemTarihi,
         displayDate: isoToDisplay(cikisIslemTarihi),
         documentNo: `CEK-${selectedCheque.cekNo}`,
-        type: 'Kasadan Çek Çıkışı',
-        source: 'IADE',
+        type: 'DUZELTME',
+        source: 'CEK',
         counterparty: 'İade',
         description,
         incoming: 0,
@@ -450,8 +448,8 @@ export default function CekIslemleriModal({
         isoDate: cikisIslemTarihi,
         displayDate: isoToDisplay(cikisIslemTarihi),
         documentNo: `CEK-${selectedCheque.cekNo}`,
-        type: 'Kasadan Çek Çıkışı',
-        source: 'DIGER',
+        type: 'DUZELTME',
+        source: 'CEK',
         counterparty: 'Diğer',
         description,
         incoming: 0,
@@ -490,7 +488,7 @@ export default function CekIslemleriModal({
       imageDataUrl: yeniChequeDataUrl || undefined,
       imageFileName: yeniChequeFile?.name,
     };
-    onSaved({ updatedCheques: [...cheques, newCheque] });
+    onSaved({ updatedCheques: [...normalizedCheques, newCheque] });
   };
 
   if (!isOpen) return null;
@@ -881,16 +879,7 @@ export default function CekIslemleriModal({
               <FormRow label="Durumlar">
                 <div className="flex flex-wrap gap-2">
                   {(
-                    [
-                      'KASADA',
-                      'BANKADA_TAHSILDE',
-                      'ODEMEDE',
-                      'TAHSIL_OLDU',
-                      'ODEME_YAPILDI',
-                      'KARSILIKSIZ',
-                      'IPTAL',
-                      'CIKMIS',
-                    ] as ChequeStatus[]
+                    ['KASADA', 'BANKADA_TAHSILDE', 'ODEMEDE', 'TAHSIL_EDILDI', 'KARSILIKSIZ'] as ChequeStatus[]
                   ).map((s) => (
                     <label key={s} className="flex items-center space-x-1 text-xs">
                       <input
