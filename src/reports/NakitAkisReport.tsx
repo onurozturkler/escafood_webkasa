@@ -62,12 +62,20 @@ export function NakitAkisReport({ transactions, banks }: Props) {
   const totals = useMemo(() => {
     return filtered.reduce(
       (acc, tx) => {
-        const cashIn = tx.incoming || 0;
-        const cashOut = tx.outgoing || 0;
         const bankDelta = tx.bankDelta || 0;
+        const cashIn =
+          (tx.displayIncoming && tx.displayIncoming > 0 && tx.displayIncoming) ||
+          (tx.incoming && tx.incoming > 0 && tx.incoming) ||
+          (bankDelta > 0 ? bankDelta : 0);
         const posKomisyon = tx.type === 'POS Komisyonu' ? tx.displayOutgoing || 0 : 0;
-        acc.totalIn += cashIn + (bankDelta > 0 ? bankDelta : 0);
-        acc.totalOut += cashOut + (bankDelta < 0 ? Math.abs(bankDelta) : 0) + posKomisyon;
+        const cashOut =
+          posKomisyon ||
+          (tx.displayOutgoing && tx.displayOutgoing > 0 && tx.displayOutgoing) ||
+          (tx.outgoing && tx.outgoing > 0 && tx.outgoing) ||
+          (bankDelta < 0 ? Math.abs(bankDelta) : 0);
+        // POS komisyonları kasa/banka bakiyesine dokunmadan raporda gider olarak gösterilir.
+        acc.totalIn += cashIn;
+        acc.totalOut += cashOut;
         return acc;
       },
       { totalIn: 0, totalOut: 0 }
@@ -77,15 +85,20 @@ export function NakitAkisReport({ transactions, banks }: Props) {
   const net = totals.totalIn - totals.totalOut;
 
   const girisler = useMemo(() => {
-    return filtered.filter((tx) => (tx.incoming || 0) > 0 || (tx.bankDelta || 0) > 0);
+    return filtered.filter(
+      (tx) =>
+        (tx.displayIncoming || 0) > 0 ||
+        (tx.incoming || 0) > 0 ||
+        (tx.bankDelta || 0) > 0
+    );
   }, [filtered]);
 
   const cikislar = useMemo(() => {
     return filtered.filter(
       (tx) =>
+        (tx.displayOutgoing || 0) > 0 ||
         (tx.outgoing || 0) > 0 ||
-        (tx.bankDelta || 0) < 0 ||
-        ((tx.type === 'POS Komisyonu' ? tx.displayOutgoing || 0 : 0) > 0)
+        (tx.bankDelta || 0) < 0
     );
   }, [filtered]);
 
@@ -183,7 +196,10 @@ export function NakitAkisReport({ transactions, banks }: Props) {
               )}
               {girisler.map((tx) => {
                 const bankDelta = tx.bankDelta || 0;
-                const amount = tx.incoming && tx.incoming > 0 ? tx.incoming : bankDelta > 0 ? bankDelta : 0;
+                const amount =
+                  (tx.displayIncoming && tx.displayIncoming > 0 && tx.displayIncoming) ||
+                  (tx.incoming && tx.incoming > 0 && tx.incoming) ||
+                  (bankDelta > 0 ? bankDelta : 0);
                 const kaynak = bankDelta > 0 ? resolveBankName(tx.bankId) : 'Kasa';
                 return (
                   <tr key={tx.id} className="border-t">
@@ -226,13 +242,11 @@ export function NakitAkisReport({ transactions, banks }: Props) {
               {cikislar.map((tx) => {
                 const bankDelta = tx.bankDelta || 0;
                 const posKomisyon = tx.type === 'POS Komisyonu' ? tx.displayOutgoing || 0 : 0;
-                const amount = posKomisyon
-                  ? posKomisyon
-                  : tx.outgoing && tx.outgoing > 0
-                  ? tx.outgoing
-                  : bankDelta < 0
-                  ? Math.abs(bankDelta)
-                  : 0;
+                const amount =
+                  (tx.displayOutgoing && tx.displayOutgoing > 0 && tx.displayOutgoing) ||
+                  (tx.outgoing && tx.outgoing > 0 && tx.outgoing) ||
+                  (bankDelta < 0 ? Math.abs(bankDelta) : 0) ||
+                  posKomisyon;
                 const kaynak = bankDelta < 0 ? resolveBankName(tx.bankId) : posKomisyon > 0 ? 'POS' : 'Kasa';
                 return (
                   <tr key={tx.id} className="border-t">
