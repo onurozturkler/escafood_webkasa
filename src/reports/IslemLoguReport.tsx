@@ -3,11 +3,13 @@ import { DailyTransaction } from '../models/transaction';
 import { BankMaster } from '../models/bank';
 import { isoToDisplay, todayIso } from '../utils/date';
 import { formatTl } from '../utils/money';
+import { HomepageIcon } from '../components/HomepageIcon';
 
 interface Props {
   transactions: DailyTransaction[];
   banks: BankMaster[];
   currentUserEmail: string;
+  onBackToDashboard?: () => void;
 }
 
 type SourceGroup = 'HEPSI' | 'NAKIT' | 'BANKA' | 'KART' | 'CEK' | 'POS';
@@ -34,7 +36,7 @@ function formatTime(iso?: string) {
   return iso.slice(11, 16) || '-';
 }
 
-export function IslemLoguReport({ transactions, banks, currentUserEmail }: Props) {
+export function IslemLoguReport({ transactions, banks, currentUserEmail, onBackToDashboard }: Props) {
   const today = todayIso();
   const [fromDate, setFromDate] = useState(today);
   const [toDate, setToDate] = useState(today);
@@ -107,6 +109,20 @@ export function IslemLoguReport({ transactions, banks, currentUserEmail }: Props
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <h1 className="text-lg md:text-xl font-semibold text-slate-800">İşlem Logu</h1>
+        {onBackToDashboard && (
+          <div className="no-print">
+            <button
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 text-sm"
+              onClick={onBackToDashboard}
+            >
+              <HomepageIcon className="w-4 h-4" />
+              <span>Ana Sayfaya Dön</span>
+            </button>
+          </div>
+        )}
+      </div>
       <div className="card p-4">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           <div>

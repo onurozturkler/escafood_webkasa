@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { DailyTransaction } from '../models/transaction';
 import { isoToDisplay } from '../utils/date';
 import { formatTl } from '../utils/money';
+import { HomepageIcon } from '../components/HomepageIcon';
 
 interface KasaDefteriViewProps {
   transactions: DailyTransaction[];
@@ -165,16 +166,17 @@ export default function KasaDefteriView({ transactions, onBackToDashboard }: Kas
               className="h-[84px] object-contain"
             />
             <div>
-              <h1 className="text-3xl font-semibold text-center">Kasa Defteri </h1>
+              <h1 className="text-3xl font-semibold text-center">Kasa Defteri</h1>
               <p className="text-sm text-slate-600 text-center">Tüm tarih aralığındaki kasa ve banka işlemleri</p>
             </div>
           </div>
           <div className="flex items-center gap-2 no-print">
             <button
-              className="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-100"
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 text-sm"
               onClick={onBackToDashboard}
             >
-              Dashboard’a Dön
+              <HomepageIcon className="w-4 h-4" />
+              <span>Ana Sayfaya Dön</span>
             </button>
             <button className="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700" onClick={() => window.print()}>
               PDF'e Aktar / Yazdır

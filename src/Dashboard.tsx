@@ -234,6 +234,8 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
     setOpenSection((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const handleBackToDashboard = () => setActiveView('DASHBOARD');
+
   const addTransactions = (newOnes: DailyTransaction[]) => {
     setDailyTransactions((prev) => mergeTransactions(prev, newOnes));
   };
@@ -962,7 +964,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         )}
         {activeView === 'KASA_DEFTERI' && (
           <div className="p-4">
-            <KasaDefteriView transactions={dailyTransactions} onBackToDashboard={() => setActiveView('DASHBOARD')} />
+            <KasaDefteriView transactions={dailyTransactions} onBackToDashboard={handleBackToDashboard} />
           </div>
         )}
         {activeView === 'ISLEM_LOGU' && (
@@ -971,17 +973,24 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
               transactions={dailyTransactions}
               banks={banks}
               currentUserEmail={currentUser.email}
+              onBackToDashboard={handleBackToDashboard}
             />
           </div>
         )}
         {activeView === 'NAKIT_AKIS' && (
           <div className="p-4">
-            <NakitAkisReport transactions={dailyTransactions} banks={banks} />
+            <NakitAkisReport transactions={dailyTransactions} banks={banks} onBackToDashboard={handleBackToDashboard} />
           </div>
         )}
         {activeView === 'CEK_SENET' && (
           <div className="p-4">
-            <CekSenetReport cheques={cheques} customers={customers} suppliers={suppliers} banks={banks} />
+            <CekSenetReport
+              cheques={cheques}
+              customers={customers}
+              suppliers={suppliers}
+              banks={banks}
+              onBackToDashboard={handleBackToDashboard}
+            />
           </div>
         )}
       </div>

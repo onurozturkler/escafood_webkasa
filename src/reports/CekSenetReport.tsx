@@ -5,12 +5,14 @@ import { Supplier } from '../models/supplier';
 import { BankMaster } from '../models/bank';
 import { diffInDays, isoToDisplay, todayIso } from '../utils/date';
 import { formatTl } from '../utils/money';
+import { HomepageIcon } from '../components/HomepageIcon';
 
 export interface CekSenetReportProps {
   cheques: Cheque[];
   customers: Customer[];
   suppliers: Supplier[];
   banks: BankMaster[];
+  onBackToDashboard?: () => void;
 }
 
 type TurFilter = 'HEPSI' | 'BIZIM' | 'MUSTERI';
@@ -47,7 +49,7 @@ function isOurCheque(cek: Cheque): boolean {
   return false;
 }
 
-export function CekSenetReport({ cheques, customers, suppliers, banks }: CekSenetReportProps) {
+export function CekSenetReport({ cheques, customers, suppliers, banks, onBackToDashboard }: CekSenetReportProps) {
   const today = todayIso();
   const [fromVadeIso, setFromVadeIso] = useState('');
   const [toVadeIso, setToVadeIso] = useState('');
@@ -137,6 +139,20 @@ export function CekSenetReport({ cheques, customers, suppliers, banks }: CekSene
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <h1 className="text-lg md:text-xl font-semibold text-slate-800">Çek/Senet Modülü</h1>
+        {onBackToDashboard && (
+          <div className="no-print">
+            <button
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 text-sm"
+              onClick={onBackToDashboard}
+            >
+              <HomepageIcon className="w-4 h-4" />
+              <span>Ana Sayfaya Dön</span>
+            </button>
+          </div>
+        )}
+      </div>
       <div className="card p-4 space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           <div>
