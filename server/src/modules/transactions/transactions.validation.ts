@@ -102,8 +102,9 @@ export function validateTransactionBusinessRules(
 
   const hasDisplay = Math.abs(displayIncoming) > 0 || Math.abs(displayOutgoing) > 0;
   const hasReal = Math.abs(incoming) > 0 || Math.abs(outgoing) > 0 || Math.abs(bankDelta) > 0;
+  const allowDisplayAndReal = payload.type === 'POS_TAHSILAT_BRUT';
 
-  if (hasDisplay && hasReal) {
+  if (hasDisplay && hasReal && !allowDisplayAndReal) {
     throw new Error('Display-only transactions cannot mix with real cash/bank amounts.');
   }
 

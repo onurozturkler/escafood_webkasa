@@ -1,11 +1,11 @@
 import { Request, Response, Router } from 'express';
-import { TransactionsController } from './transactions.controller';
+import { BanksController } from './banks.controller';
 
 const router = Router();
-const controller = new TransactionsController();
+const controller = new BanksController();
 
-router.post('/', (req: Request, res: Response) => controller.create(req, res));
 router.get('/', (req: Request, res: Response) => controller.list(req, res));
+router.post('/', (req: Request, res: Response) => controller.create(req, res));
 router.put('/:id', (req: Request, res: Response) => controller.update(req, res));
 router.delete('/:id', (req: Request, res: Response) => controller.remove(req, res));
 
