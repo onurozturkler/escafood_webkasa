@@ -67,9 +67,9 @@ export function NakitAkisReport({ transactions, banks }: Props) {
           (tx.displayIncoming && tx.displayIncoming > 0 && tx.displayIncoming) ||
           (tx.incoming && tx.incoming > 0 && tx.incoming) ||
           (bankDelta > 0 ? bankDelta : 0);
-        const posKomisyon = tx.type === 'POS Komisyonu' ? tx.displayOutgoing || 0 : 0;
+        const komisyon = tx.type === 'POS Komisyonu' ? tx.displayOutgoing || tx.outgoing || 0 : 0;
         const cashOut =
-          posKomisyon ||
+          komisyon ||
           (tx.displayOutgoing && tx.displayOutgoing > 0 && tx.displayOutgoing) ||
           (tx.outgoing && tx.outgoing > 0 && tx.outgoing) ||
           (bankDelta < 0 ? Math.abs(bankDelta) : 0);
@@ -96,9 +96,10 @@ export function NakitAkisReport({ transactions, banks }: Props) {
   const cikislar = useMemo(() => {
     return filtered.filter(
       (tx) =>
-        (tx.displayOutgoing || 0) > 0 ||
-        (tx.outgoing || 0) > 0 ||
-        (tx.bankDelta || 0) < 0
+        tx.type === 'POS Komisyonu' ||
+        (tx.displayOutgoing && tx.displayOutgoing > 0) ||
+        (tx.outgoing && tx.outgoing > 0) ||
+        (tx.bankDelta && tx.bankDelta < 0)
     );
   }, [filtered]);
 
@@ -241,13 +242,18 @@ export function NakitAkisReport({ transactions, banks }: Props) {
               )}
               {cikislar.map((tx) => {
                 const bankDelta = tx.bankDelta || 0;
-                const posKomisyon = tx.type === 'POS Komisyonu' ? tx.displayOutgoing || 0 : 0;
+                const komisyon = tx.type === 'POS Komisyonu' ? tx.displayOutgoing || tx.outgoing || 0 : 0;
                 const amount =
+                  komisyon ||
                   (tx.displayOutgoing && tx.displayOutgoing > 0 && tx.displayOutgoing) ||
                   (tx.outgoing && tx.outgoing > 0 && tx.outgoing) ||
-                  (bankDelta < 0 ? Math.abs(bankDelta) : 0) ||
-                  posKomisyon;
-                const kaynak = bankDelta < 0 ? resolveBankName(tx.bankId) : posKomisyon > 0 ? 'POS' : 'Kasa';
+                  (bankDelta < 0 ? Math.abs(bankDelta) : 0);
+                const kaynak =
+                  tx.type === 'POS Komisyonu'
+                    ? 'POS'
+                    : bankDelta < 0
+                    ? resolveBankName(tx.bankId)
+                    : 'Kasa';
                 return (
                   <tr key={tx.id} className="border-t">
                     <td className="px-3 py-2">{isoToDisplay(tx.isoDate)}</td>
