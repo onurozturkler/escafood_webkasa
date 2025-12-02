@@ -1,22 +1,11 @@
-import { z } from 'zod';
-import {
-  createTransactionSchema,
-  updateTransactionSchema,
-  transactionQuerySchema,
-  deleteTransactionSchema,
-} from './transactions.validation';
+import { DailyTransactionType, DailyTransactionSource } from '@prisma/client';
 
-export type CreateTransactionDTO = z.infer<typeof createTransactionSchema>;
-export type UpdateTransactionDTO = z.infer<typeof updateTransactionSchema>;
-export type TransactionQueryDTO = z.infer<typeof transactionQuerySchema>;
-export type DeleteTransactionDTO = z.infer<typeof deleteTransactionSchema>;
-
-export interface TransactionRecord {
+export interface TransactionDto {
   id: string;
   isoDate: string;
   documentNo: string | null;
-  type: string;
-  source: string;
+  type: DailyTransactionType;
+  source: DailyTransactionSource;
   counterparty: string | null;
   description: string | null;
   incoming: number;
@@ -32,15 +21,76 @@ export interface TransactionRecord {
   customerId: string | null;
   supplierId: string | null;
   attachmentId: string | null;
-  createdAt: Date;
+  createdAt: string;
   createdBy: string;
-  updatedAt: Date | null;
+  updatedAt: string | null;
   updatedBy: string | null;
-  deletedAt: Date | null;
+  deletedAt: string | null;
   deletedBy: string | null;
 }
 
-export interface PaginatedTransactions {
-  items: TransactionRecord[];
+export interface CreateTransactionDto {
+  isoDate: string;
+  documentNo?: string | null;
+  type: DailyTransactionType;
+  source: DailyTransactionSource;
+  counterparty?: string | null;
+  description?: string | null;
+  incoming?: number;
+  outgoing?: number;
+  bankDelta?: number;
+  displayIncoming?: number | null;
+  displayOutgoing?: number | null;
+  cashAccountId?: string | null;
+  bankId?: string | null;
+  creditCardId?: string | null;
+  chequeId?: string | null;
+  customerId?: string | null;
+  supplierId?: string | null;
+  attachmentId?: string | null;
+}
+
+export interface UpdateTransactionDto {
+  isoDate?: string;
+  documentNo?: string | null;
+  type?: DailyTransactionType;
+  source?: DailyTransactionSource;
+  counterparty?: string | null;
+  description?: string | null;
+  incoming?: number;
+  outgoing?: number;
+  bankDelta?: number;
+  displayIncoming?: number | null;
+  displayOutgoing?: number | null;
+  cashAccountId?: string | null;
+  bankId?: string | null;
+  creditCardId?: string | null;
+  chequeId?: string | null;
+  customerId?: string | null;
+  supplierId?: string | null;
+  attachmentId?: string | null;
+}
+
+export interface TransactionListQuery {
+  from?: string;
+  to?: string;
+  documentNo?: string;
+  type?: DailyTransactionType;
+  source?: DailyTransactionSource;
+  counterparty?: string;
+  description?: string;
+  bankId?: string;
+  creditCardId?: string;
+  createdBy?: string;
+  search?: string;
+  sortKey?: 'isoDate' | 'documentNo' | 'type' | 'counterparty' | 'incoming' | 'outgoing' | 'balanceAfter';
+  sortDir?: 'asc' | 'desc';
+  page?: number;
+  pageSize?: number;
+}
+
+export interface TransactionListResponse {
+  items: TransactionDto[];
   totalCount: number;
 }
+

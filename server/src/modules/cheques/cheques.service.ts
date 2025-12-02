@@ -1,11 +1,472 @@
-import { prisma } from '../../config/prisma';
-import { normalizeAmounts, validateTransactionBusinessRules } from '../transactions/transactions.validation';
-import { TransactionRecord } from '../transactions/transactions.types';
-import { ChequeDto, ChequeQueryDTO, CreateChequeDTO, PaginatedCheques, UpdateChequeDTO, UpdateChequeStatusDTO } from './cheques.types';
+import { PrismaClient, ChequeStatus, ChequeDirection, DailyTransactionType, DailyTransactionSource } from '@prisma/client';
+import prisma from '../../config/prisma';
+import {
+  CreateChequeDto,
+  UpdateChequeDto,
+  UpdateChequeStatusDto,
+  ChequeListQuery,
+  ChequeListResponse,
+  ChequeDto,
+} from './cheques.types';
+
+/**
+ * Get default status for a cheque based on direction
+ */
+function getDefaultStatus(direction: ChequeDirection): ChequeStatus {
+  if (direction === 'ALACAK') {
+    return 'KASADA';
+  } else {
+    return 'ODEMEDE';
+  }
+}
+
+/**
+ * Check if a status transition is allowed
+ */
+function isStatusTransitionAllowed(
+  currentStatus: ChequeStatus,
+  newStatus: ChequeStatus,
+  direction: ChequeDirection
+): boolean {
+  // Any status can transition to KARSILIKSIZ
+  if (newStatus === 'KARSILIKSIZ') {
+    return true;
+  }
+
+  if (direction === 'ALACAK') {
+    // For ALACAK cheques:
+    // KASADA → BANKADA_TAHSILDE
+    // KASADA → TAHSIL_EDILDI
+    // BANKADA_TAHSILDE → TAHSIL_EDILDI
+    const allowedTransitions: ChequeStatus[] = [];
+    if (currentStatus === 'KASADA') {
+      allowedTransitions.push('BANKADA_TAHSILDE', 'TAHSIL_EDILDI');
+    } else if (currentStatus === 'BANKADA_TAHSILDE') {
+      allowedTransitions.push('TAHSIL_EDILDI');
+    }
+    return allowedTransitions.includes(newStatus);
+  } else {
+    // For BORC cheques:
+    // ODEMEDE → TAHSIL_EDILDI (paid)
+    if (currentStatus === 'ODEMEDE' && newStatus === 'TAHSIL_EDILDI') {
+      return true;
+    }
+    return false;
+  }
+}
+
+/**
+ * Calculate cash balance after a transaction
+ * Gets all transactions up to this date (excluding the one being created),
+ * calculates balance, then adds the new transaction's incoming/outgoing
+ */
+async function calculateBalanceAfter(
+  isoDate: string,
+  incoming: number,
+  outgoing: number,
+  excludeTransactionId?: string
+): Promise<number> {
+  // Get all non-deleted transactions up to this date
+  const where: any = {
+    deletedAt: null,
+    isoDate: { lte: isoDate },
+  };
+
+  if (excludeTransactionId) {
+    where.id = { not: excludeTransactionId };
+  }
+
+  const transactions = await prisma.transaction.findMany({
+    where,
+    orderBy: [
+      { isoDate: 'asc' },
+      { createdAt: 'asc' },
+    ],
+  });
+
+  // Calculate balance up to this point
+  let balance = 0;
+  for (const tx of transactions) {
+    balance += Number(tx.incoming) - Number(tx.outgoing);
+  }
+
+  // Add the new transaction's effect
+  balance += incoming - outgoing;
+
+  return balance;
+}
+
+/**
+ * Create a transaction for cheque collection/payment
+ */
+async function createChequeTransaction(
+  chequeId: string,
+  type: DailyTransactionType,
+  source: DailyTransactionSource,
+  isoDate: string,
+  amount: number,
+  counterparty: string | null,
+  description: string | null,
+  bankId: string | null,
+  incoming: number,
+  outgoing: number,
+  bankDelta: number,
+  displayIncoming: number | null,
+  displayOutgoing: number | null,
+  createdBy: string
+): Promise<string> {
+  const balanceAfter = await calculateBalanceAfter(isoDate, incoming, outgoing);
+
+  const transaction = await prisma.transaction.create({
+    data: {
+      isoDate,
+      documentNo: null, // Can be set later if needed
+      type,
+      source,
+      counterparty,
+      description,
+      incoming: incoming,
+      outgoing: outgoing,
+      bankDelta: bankDelta,
+      displayIncoming: displayIncoming,
+      displayOutgoing: displayOutgoing,
+      balanceAfter: balanceAfter,
+      chequeId,
+      bankId,
+      createdBy,
+    },
+  });
+
+  return transaction.id;
+}
 
 export class ChequesService {
-  async getCheques(query: ChequeQueryDTO): Promise<PaginatedCheques> {
-    const where: Record<string, any> = {
+  /**
+   * Create a new cheque
+   */
+  async createCheque(data: CreateChequeDto, createdBy: string): Promise<ChequeDto> {
+    const defaultStatus = getDefaultStatus(data.direction);
+
+    const cheque = await prisma.cheque.create({
+      data: {
+        cekNo: data.cekNo,
+        amount: data.amount,
+        entryDate: data.entryDate,
+        maturityDate: data.maturityDate,
+        status: defaultStatus,
+        direction: data.direction,
+        customerId: data.customerId || null,
+        supplierId: data.supplierId || null,
+        bankId: data.bankId || null,
+        description: data.description || null,
+        attachmentId: data.attachmentId || null,
+        createdBy,
+      },
+      include: {
+        bank: {
+          select: {
+            id: true,
+            name: true,
+            accountNo: true,
+            iban: true,
+          },
+        },
+        customer: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        supplier: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    return this.mapToDto(cheque);
+  }
+
+  /**
+   * Update a cheque (base fields only, no status change)
+   */
+  async updateCheque(id: string, data: UpdateChequeDto, updatedBy: string): Promise<ChequeDto> {
+    const cheque = await prisma.cheque.findUnique({
+      where: { id },
+    });
+
+    if (!cheque) {
+      throw new Error('Cheque not found');
+    }
+
+    if (cheque.deletedAt) {
+      throw new Error('Cannot update deleted cheque');
+    }
+
+    const updated = await prisma.cheque.update({
+      where: { id },
+      data: {
+        ...data,
+        updatedBy,
+        updatedAt: new Date(),
+      },
+      include: {
+        bank: {
+          select: {
+            id: true,
+            name: true,
+            accountNo: true,
+            iban: true,
+          },
+        },
+        customer: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        supplier: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    return this.mapToDto(updated);
+  }
+
+  /**
+   * Update cheque status with transaction side-effects
+   */
+  async updateChequeStatus(
+    id: string,
+    data: UpdateChequeStatusDto,
+    updatedBy: string
+  ): Promise<{ cheque: ChequeDto; transactionId: string | null }> {
+    const cheque = await prisma.cheque.findUnique({
+      where: { id },
+      include: {
+        customer: true,
+        supplier: true,
+        bank: true,
+      },
+    });
+
+    if (!cheque) {
+      throw new Error('Cheque not found');
+    }
+
+    if (cheque.deletedAt) {
+      throw new Error('Cannot update deleted cheque');
+    }
+
+    // Validate status transition
+    if (!isStatusTransitionAllowed(cheque.status, data.newStatus, cheque.direction)) {
+      throw new Error(
+        `Invalid status transition from ${cheque.status} to ${data.newStatus} for direction ${cheque.direction}`
+      );
+    }
+
+    let transactionId: string | null = null;
+
+    // Handle transaction side-effects based on status change
+    if (data.newStatus === 'TAHSIL_EDILDI') {
+      if (cheque.direction === 'ALACAK') {
+        // Customer cheque collected
+        const amount = Number(cheque.amount);
+        const counterparty = cheque.customer?.name || null;
+        const description = data.description || `Çek No: ${cheque.cekNo}`;
+
+        if (data.bankId) {
+          // Collected into BANK
+          transactionId = await createChequeTransaction(
+            cheque.id,
+            'CEK_TAHSIL_BANKA',
+            'BANKA',
+            data.isoDate,
+            amount,
+            counterparty,
+            description,
+            data.bankId,
+            0, // incoming
+            0, // outgoing
+            amount, // bankDelta positive
+            null, // displayIncoming
+            null, // displayOutgoing
+            updatedBy
+          );
+        } else {
+          // Collected into CASH
+          transactionId = await createChequeTransaction(
+            cheque.id,
+            'CEK_TAHSIL_BANKA',
+            'KASA',
+            data.isoDate,
+            amount,
+            counterparty,
+            description,
+            null, // bankId
+            amount, // incoming
+            0, // outgoing
+            0, // bankDelta
+            null, // displayIncoming
+            null, // displayOutgoing
+            updatedBy
+          );
+        }
+      } else {
+        // BORC cheque paid
+        const amount = Number(cheque.amount);
+        const counterparty = cheque.supplier?.name || null;
+        const description = data.description || `Çek No: ${cheque.cekNo}`;
+
+        if (data.bankId) {
+          // Paid from BANK
+          transactionId = await createChequeTransaction(
+            cheque.id,
+            'CEK_ODENMESI',
+            'BANKA',
+            data.isoDate,
+            amount,
+            counterparty,
+            description,
+            data.bankId,
+            0, // incoming
+            0, // outgoing
+            -amount, // bankDelta negative
+            null, // displayIncoming
+            null, // displayOutgoing
+            updatedBy
+          );
+        } else {
+          // Paid from CASH
+          transactionId = await createChequeTransaction(
+            cheque.id,
+            'CEK_ODENMESI',
+            'KASA',
+            data.isoDate,
+            amount,
+            counterparty,
+            description,
+            null, // bankId
+            0, // incoming
+            amount, // outgoing
+            0, // bankDelta
+            null, // displayIncoming
+            null, // displayOutgoing
+            updatedBy
+          );
+        }
+      }
+    } else if (data.newStatus === 'KARSILIKSIZ') {
+      // Optional info-only row for bounced cheque
+      const amount = Number(cheque.amount);
+      const counterparty = cheque.direction === 'ALACAK' ? cheque.customer?.name : cheque.supplier?.name || null;
+      const description = data.description || `Çek No: ${cheque.cekNo} - Karşılıksız`;
+
+      transactionId = await createChequeTransaction(
+        cheque.id,
+        'CEK_KARSILIKSIZ',
+        'CEK',
+        data.isoDate,
+        amount,
+        counterparty,
+        description,
+        null, // bankId
+        0, // incoming
+        0, // outgoing
+        0, // bankDelta
+        null, // displayIncoming
+        amount, // displayOutgoing (optional info)
+        updatedBy
+      );
+    }
+
+    // Update cheque status
+    const updated = await prisma.cheque.update({
+      where: { id },
+      data: {
+        status: data.newStatus,
+        bankId: data.bankId !== undefined ? data.bankId : cheque.bankId,
+        updatedBy,
+        updatedAt: new Date(),
+      },
+      include: {
+        bank: {
+          select: {
+            id: true,
+            name: true,
+            accountNo: true,
+            iban: true,
+          },
+        },
+        customer: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        supplier: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    return {
+      cheque: this.mapToDto(updated),
+      transactionId,
+    };
+  }
+
+  /**
+   * Get cheque by ID
+   */
+  async getChequeById(id: string): Promise<ChequeDto | null> {
+    const cheque = await prisma.cheque.findUnique({
+      where: { id },
+      include: {
+        bank: {
+          select: {
+            id: true,
+            name: true,
+            accountNo: true,
+            iban: true,
+          },
+        },
+        customer: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        supplier: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!cheque || cheque.deletedAt) {
+      return null;
+    }
+
+    return this.mapToDto(cheque);
+  }
+
+  /**
+   * List cheques with filters
+   */
+  async listCheques(query: ChequeListQuery): Promise<ChequeListResponse> {
+    const where: any = {
       deletedAt: null,
     };
 
@@ -19,14 +480,22 @@ export class ChequesService {
 
     if (query.entryFrom || query.entryTo) {
       where.entryDate = {};
-      if (query.entryFrom) where.entryDate.gte = query.entryFrom;
-      if (query.entryTo) where.entryDate.lte = query.entryTo;
+      if (query.entryFrom) {
+        where.entryDate.gte = query.entryFrom;
+      }
+      if (query.entryTo) {
+        where.entryDate.lte = query.entryTo;
+      }
     }
 
     if (query.maturityFrom || query.maturityTo) {
       where.maturityDate = {};
-      if (query.maturityFrom) where.maturityDate.gte = query.maturityFrom;
-      if (query.maturityTo) where.maturityDate.lte = query.maturityTo;
+      if (query.maturityFrom) {
+        where.maturityDate.gte = query.maturityFrom;
+      }
+      if (query.maturityTo) {
+        where.maturityDate.lte = query.maturityTo;
+      }
     }
 
     if (query.customerId) {
@@ -48,379 +517,112 @@ export class ChequesService {
       ];
     }
 
-    const skip = ((query.page ?? 1) - 1) * (query.pageSize ?? 50);
-    const take = query.pageSize ?? 50;
+    const page = query.page || 1;
+    const pageSize = query.pageSize || 50;
+    const skip = (page - 1) * pageSize;
 
-    const [items, totalCount, totalAmount] = await prisma.$transaction([
+    const [cheques, totalCount] = await Promise.all([
       prisma.cheque.findMany({
         where,
         skip,
-        take,
+        take: pageSize,
         orderBy: [
           { maturityDate: 'asc' },
-          { createdAt: 'asc' },
+          { entryDate: 'asc' },
         ],
+        include: {
+          bank: {
+            select: {
+              id: true,
+              name: true,
+              accountNo: true,
+              iban: true,
+            },
+          },
+          customer: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          supplier: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
       }),
       prisma.cheque.count({ where }),
-      prisma.cheque.aggregate({ where, _sum: { amount: true } }),
     ]);
 
+    const totalAmount = cheques.reduce((sum, c) => sum + Number(c.amount), 0);
+
+    // Calculate upcoming maturities
+    const today = new Date().toISOString().split('T')[0];
+    const sevenDaysLater = new Date();
+    sevenDaysLater.setDate(sevenDaysLater.getDate() + 7);
+    const sevenDaysLaterStr = sevenDaysLater.toISOString().split('T')[0];
+    const thirtyDaysLater = new Date();
+    thirtyDaysLater.setDate(thirtyDaysLater.getDate() + 30);
+    const thirtyDaysLaterStr = thirtyDaysLater.toISOString().split('T')[0];
+
+    const allCheques = await prisma.cheque.findMany({
+      where: {
+        ...where,
+        status: {
+          in: ['KASADA', 'BANKADA_TAHSILDE', 'ODEMEDE'],
+        },
+      },
+    });
+
+    const within7Days = allCheques.filter(
+      (c) => c.maturityDate >= today && c.maturityDate <= sevenDaysLaterStr
+    ).length;
+    const within30Days = allCheques.filter(
+      (c) => c.maturityDate >= today && c.maturityDate <= thirtyDaysLaterStr
+    ).length;
+    const overdue = allCheques.filter((c) => c.maturityDate < today).length;
+
     return {
-      items: items.map((c: any) => this.toChequeDto(c)),
+      items: cheques.map((c) => this.mapToDto(c)),
       totalCount,
-      totalAmount: Number(totalAmount._sum.amount ?? 0),
-    };
-  }
-
-  async createCheque(payload: CreateChequeDTO): Promise<ChequeDto> {
-    const status = payload.direction === 'ALACAK' ? 'KASADA' : 'ODEMEDE';
-
-    const created = await prisma.cheque.create({
-      data: {
-        cekNo: payload.cekNo,
-        amount: payload.amount,
-        entryDate: payload.entryDate,
-        maturityDate: payload.maturityDate,
-        direction: payload.direction,
-        status,
-        customerId: payload.customerId ?? null,
-        supplierId: payload.supplierId ?? null,
-        bankId: payload.bankId ?? null,
-        description: payload.description ?? null,
-        attachmentId: payload.attachmentId ?? null,
-        createdBy: payload.createdBy,
+      totalAmount,
+      upcomingMaturities: {
+        within7Days,
+        within30Days,
+        overdue,
       },
-    });
-
-    return this.toChequeDto(created);
-  }
-
-  async updateCheque(id: string, payload: UpdateChequeDTO): Promise<ChequeDto> {
-    const existing = await prisma.cheque.findUnique({ where: { id } });
-    if (!existing || existing.deletedAt) {
-      throw new Error('Cheque not found.');
-    }
-
-    const data: Record<string, unknown> = {
-      updatedAt: new Date(),
-      updatedBy: payload.updatedBy,
-    };
-
-    if (payload.cekNo !== undefined) data.cekNo = payload.cekNo;
-    if (payload.amount !== undefined) data.amount = payload.amount;
-    if (payload.entryDate !== undefined) data.entryDate = payload.entryDate;
-    if (payload.maturityDate !== undefined) data.maturityDate = payload.maturityDate;
-    if (payload.customerId !== undefined) data.customerId = payload.customerId ?? null;
-    if (payload.supplierId !== undefined) data.supplierId = payload.supplierId ?? null;
-    if (payload.bankId !== undefined) data.bankId = payload.bankId ?? null;
-    if (payload.description !== undefined) data.description = payload.description ?? null;
-    if (payload.attachmentId !== undefined) data.attachmentId = payload.attachmentId ?? null;
-
-    const updated = await prisma.cheque.update({
-      where: { id },
-      data,
-    });
-
-    return this.toChequeDto(updated);
-  }
-
-  async updateChequeStatus(
-    id: string,
-    payload: UpdateChequeStatusDTO,
-  ): Promise<{ cheque: ChequeDto; transaction?: TransactionRecord }> {
-    const cheque = await prisma.cheque.findUnique({ where: { id } });
-    if (!cheque || cheque.deletedAt) {
-      throw new Error('Cheque not found.');
-    }
-
-    this.ensureTransitionAllowed(cheque, payload.newStatus);
-
-    const amount = Number(cheque.amount);
-    const effectiveBankId = payload.bankId ?? cheque.bankId ?? null;
-
-    if (
-      payload.newStatus === 'TAHSIL_EDILDI' &&
-      cheque.direction === 'ALACAK' &&
-      cheque.status === 'BANKADA_TAHSILDE' &&
-      !effectiveBankId
-    ) {
-      throw new Error('bankId is required to collect a cheque that is at the bank.');
-    }
-
-    const result = await prisma.$transaction(async (tx: any) => {
-      const chequeUpdateData: Record<string, unknown> = {
-        status: payload.newStatus,
-        updatedAt: new Date(),
-        updatedBy: payload.updatedBy,
-      };
-
-      if (payload.newStatus === 'BANKADA_TAHSILDE') {
-        if (!payload.bankId) {
-          throw new Error('bankId is required when moving cheque to BANKADA_TAHSILDE.');
-        }
-        chequeUpdateData.bankId = payload.bankId;
-      }
-
-      if (payload.bankId !== undefined && payload.bankId !== null) {
-        chequeUpdateData.bankId = payload.bankId;
-      }
-
-      const updatedCheque = await tx.cheque.update({
-        where: { id },
-        data: chequeUpdateData,
-      });
-
-      let createdTx: TransactionRecord | undefined;
-
-      if (payload.newStatus === 'TAHSIL_EDILDI') {
-        if (cheque.direction === 'ALACAK') {
-          if (effectiveBankId) {
-            createdTx = await this.createLinkedTransaction(tx, {
-              isoDate: payload.isoDate,
-              documentNo: null,
-              type: 'CEK_TAHSIL_BANKA',
-              source: 'BANKA',
-              counterparty: null,
-              description: updatedCheque.description ?? null,
-              incoming: 0,
-              outgoing: 0,
-              bankDelta: amount,
-              displayIncoming: 0,
-              displayOutgoing: 0,
-              cashAccountId: null,
-              bankId: effectiveBankId,
-              creditCardId: null,
-              chequeId: updatedCheque.id,
-              customerId: updatedCheque.customerId ?? null,
-              supplierId: updatedCheque.supplierId ?? null,
-              attachmentId: updatedCheque.attachmentId ?? null,
-              createdBy: payload.updatedBy,
-            });
-          } else {
-            createdTx = await this.createLinkedTransaction(tx, {
-              isoDate: payload.isoDate,
-              documentNo: null,
-              type: 'CEK_TAHSIL_BANKA',
-              source: 'KASA',
-              counterparty: null,
-              description: updatedCheque.description ?? null,
-              incoming: amount,
-              outgoing: 0,
-              bankDelta: 0,
-              displayIncoming: 0,
-              displayOutgoing: 0,
-              cashAccountId: null,
-              bankId: null,
-              creditCardId: null,
-              chequeId: updatedCheque.id,
-              customerId: updatedCheque.customerId ?? null,
-              supplierId: updatedCheque.supplierId ?? null,
-              attachmentId: updatedCheque.attachmentId ?? null,
-              createdBy: payload.updatedBy,
-            });
-          }
-        } else {
-          if (effectiveBankId) {
-            createdTx = await this.createLinkedTransaction(tx, {
-              isoDate: payload.isoDate,
-              documentNo: null,
-              type: 'CEK_ODENMESI',
-              source: 'BANKA',
-              counterparty: null,
-              description: updatedCheque.description ?? null,
-              incoming: 0,
-              outgoing: 0,
-              bankDelta: -amount,
-              displayIncoming: 0,
-              displayOutgoing: 0,
-              cashAccountId: null,
-              bankId: effectiveBankId,
-              creditCardId: null,
-              chequeId: updatedCheque.id,
-              customerId: updatedCheque.customerId ?? null,
-              supplierId: updatedCheque.supplierId ?? null,
-              attachmentId: updatedCheque.attachmentId ?? null,
-              createdBy: payload.updatedBy,
-            });
-          } else {
-            createdTx = await this.createLinkedTransaction(tx, {
-              isoDate: payload.isoDate,
-              documentNo: null,
-              type: 'CEK_ODENMESI',
-              source: 'KASA',
-              counterparty: null,
-              description: updatedCheque.description ?? null,
-              incoming: 0,
-              outgoing: amount,
-              bankDelta: 0,
-              displayIncoming: 0,
-              displayOutgoing: 0,
-              cashAccountId: null,
-              bankId: null,
-              creditCardId: null,
-              chequeId: updatedCheque.id,
-              customerId: updatedCheque.customerId ?? null,
-              supplierId: updatedCheque.supplierId ?? null,
-              attachmentId: updatedCheque.attachmentId ?? null,
-              createdBy: payload.updatedBy,
-            });
-          }
-        }
-      } else if (payload.newStatus === 'KARSILIKSIZ') {
-        createdTx = await this.createLinkedTransaction(tx, {
-          isoDate: payload.isoDate,
-          documentNo: null,
-          type: 'CEK_KARSILIKSIZ',
-          source: 'CEK',
-          counterparty: null,
-          description: updatedCheque.description ?? null,
-          incoming: 0,
-          outgoing: 0,
-          bankDelta: 0,
-          displayIncoming: 0,
-          displayOutgoing: amount,
-          cashAccountId: null,
-          bankId: null,
-          creditCardId: null,
-          chequeId: updatedCheque.id,
-          customerId: updatedCheque.customerId ?? null,
-          supplierId: updatedCheque.supplierId ?? null,
-          attachmentId: updatedCheque.attachmentId ?? null,
-          createdBy: payload.updatedBy,
-        });
-      }
-
-      return {
-        cheque: this.toChequeDto(updatedCheque),
-        transaction: createdTx,
-      };
-    });
-
-    return result;
-  }
-
-  private ensureTransitionAllowed(cheque: any, newStatus: string) {
-    const current = cheque.status;
-    if (newStatus === current) {
-      throw new Error('Cheque is already in the requested status.');
-    }
-
-    if (cheque.direction === 'ALACAK') {
-      const allowed: Record<string, string[]> = {
-        KASADA: ['BANKADA_TAHSILDE', 'TAHSIL_EDILDI', 'KARSILIKSIZ'],
-        BANKADA_TAHSILDE: ['TAHSIL_EDILDI', 'KARSILIKSIZ'],
-        TAHSIL_EDILDI: ['KARSILIKSIZ'],
-        ODEMEDE: [],
-        KARSILIKSIZ: [],
-      };
-      if (!allowed[current] || !allowed[current].includes(newStatus)) {
-        throw new Error(`Transition from ${current} to ${newStatus} is not allowed for ALACAK cheques.`);
-      }
-    } else {
-      const allowed: Record<string, string[]> = {
-        ODEMEDE: ['TAHSIL_EDILDI', 'KARSILIKSIZ'],
-        TAHSIL_EDILDI: ['KARSILIKSIZ'],
-        KASADA: [],
-        BANKADA_TAHSILDE: [],
-        KARSILIKSIZ: [],
-      };
-      if (!allowed[current] || !allowed[current].includes(newStatus)) {
-        throw new Error(`Transition from ${current} to ${newStatus} is not allowed for BORC cheques.`);
-      }
-    }
-  }
-
-  private toChequeDto(model: any): ChequeDto {
-    return {
-      id: model.id,
-      cekNo: model.cekNo,
-      amount: Number(model.amount),
-      entryDate: model.entryDate,
-      maturityDate: model.maturityDate,
-      status: model.status,
-      direction: model.direction,
-      customerId: model.customerId,
-      supplierId: model.supplierId,
-      bankId: model.bankId,
-      description: model.description,
-      attachmentId: model.attachmentId,
-      createdAt: model.createdAt,
-      createdBy: model.createdBy,
-      updatedAt: model.updatedAt,
-      updatedBy: model.updatedBy,
-      deletedAt: model.deletedAt,
-      deletedBy: model.deletedBy,
     };
   }
 
-  private async createLinkedTransaction(tx: any, payload: any): Promise<TransactionRecord> {
-    const normalized = normalizeAmounts(payload);
-    validateTransactionBusinessRules(normalized);
-
-    const transaction = await tx.transaction.create({
-      data: {
-        isoDate: normalized.isoDate,
-        documentNo: normalized.documentNo ?? null,
-        type: normalized.type,
-        source: normalized.source,
-        counterparty: normalized.counterparty ?? null,
-        description: normalized.description ?? null,
-        incoming: normalized.incoming,
-        outgoing: normalized.outgoing,
-        bankDelta: normalized.bankDelta,
-        displayIncoming:
-          normalized.displayIncoming && Math.abs(normalized.displayIncoming) > 0
-            ? normalized.displayIncoming
-            : null,
-        displayOutgoing:
-          normalized.displayOutgoing && Math.abs(normalized.displayOutgoing) > 0
-            ? normalized.displayOutgoing
-            : null,
-        balanceAfter: 0,
-        cashAccountId: normalized.cashAccountId ?? null,
-        bankId: normalized.bankId ?? null,
-        creditCardId: normalized.creditCardId ?? null,
-        chequeId: normalized.chequeId ?? null,
-        customerId: normalized.customerId ?? null,
-        supplierId: normalized.supplierId ?? null,
-        attachmentId: normalized.attachmentId ?? null,
-        createdBy: normalized.createdBy,
-      },
-    });
-
-    await this.recomputeCashBalances(tx);
-
+  /**
+   * Map Prisma cheque to DTO
+   */
+  private mapToDto(cheque: any): ChequeDto {
     return {
-      ...transaction,
-      incoming: Number(transaction.incoming ?? 0),
-      outgoing: Number(transaction.outgoing ?? 0),
-      bankDelta: Number(transaction.bankDelta ?? 0),
-      displayIncoming: transaction.displayIncoming ? Number(transaction.displayIncoming) : null,
-      displayOutgoing: transaction.displayOutgoing ? Number(transaction.displayOutgoing) : null,
-    } as TransactionRecord;
-  }
-
-  private async recomputeCashBalances(tx: any): Promise<void> {
-    const transactions = await tx.transaction.findMany({
-      where: { deletedAt: null },
-      orderBy: [
-        { isoDate: 'asc' },
-        { createdAt: 'asc' },
-        { id: 'asc' },
-      ],
-    });
-
-    let runningBalance = 0;
-
-    for (const t of transactions) {
-      const incoming = Number(t.incoming ?? 0);
-      const outgoing = Number(t.outgoing ?? 0);
-      runningBalance = runningBalance + incoming - outgoing;
-      // eslint-disable-next-line no-await-in-loop
-      await tx.transaction.update({
-        where: { id: t.id },
-        data: { balanceAfter: runningBalance },
-      });
-    }
+      id: cheque.id,
+      cekNo: cheque.cekNo,
+      amount: Number(cheque.amount),
+      entryDate: cheque.entryDate,
+      maturityDate: cheque.maturityDate,
+      status: cheque.status,
+      direction: cheque.direction,
+      customerId: cheque.customerId,
+      supplierId: cheque.supplierId,
+      bankId: cheque.bankId,
+      description: cheque.description,
+      attachmentId: cheque.attachmentId,
+      createdAt: cheque.createdAt.toISOString(),
+      createdBy: cheque.createdBy,
+      updatedAt: cheque.updatedAt?.toISOString() || null,
+      updatedBy: cheque.updatedBy || null,
+      deletedAt: cheque.deletedAt?.toISOString() || null,
+      deletedBy: cheque.deletedBy || null,
+      bank: cheque.bank || null,
+      customer: cheque.customer || null,
+      supplier: cheque.supplier || null,
+    };
   }
 }
+

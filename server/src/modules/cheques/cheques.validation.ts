@@ -1,14 +1,43 @@
 import { z } from 'zod';
+import { ChequeStatus, ChequeDirection } from '@prisma/client';
 
 const isoDateRegex = /^\d{4}-\d{2}-\d{2}$/;
 
-export const chequeIdParamSchema = z.object({
-  id: z.string().uuid(),
+export const createChequeSchema = z.object({
+  cekNo: z.string().min(1, 'Çek numarası gereklidir'),
+  amount: z.number().positive('Tutar pozitif olmalıdır'),
+  entryDate: z.string().regex(isoDateRegex, 'Geçerli bir tarih formatı gerekir (YYYY-MM-DD)'),
+  maturityDate: z.string().regex(isoDateRegex, 'Geçerli bir tarih formatı gerekir (YYYY-MM-DD)'),
+  direction: z.nativeEnum(ChequeDirection),
+  customerId: z.string().uuid().nullable().optional(),
+  supplierId: z.string().uuid().nullable().optional(),
+  bankId: z.string().uuid().nullable().optional(),
+  description: z.string().max(500).nullable().optional(),
+  attachmentId: z.string().uuid().nullable().optional(),
 });
 
-export const chequeQuerySchema = z.object({
-  status: z.enum(['KASADA', 'BANKADA_TAHSILDE', 'ODEMEDE', 'TAHSIL_EDILDI', 'KARSILIKSIZ']).optional(),
-  direction: z.enum(['ALACAK', 'BORC']).optional(),
+export const updateChequeSchema = z.object({
+  cekNo: z.string().min(1).optional(),
+  amount: z.number().positive().optional(),
+  entryDate: z.string().regex(isoDateRegex).optional(),
+  maturityDate: z.string().regex(isoDateRegex).optional(),
+  customerId: z.string().uuid().nullable().optional(),
+  supplierId: z.string().uuid().nullable().optional(),
+  bankId: z.string().uuid().nullable().optional(),
+  description: z.string().max(500).nullable().optional(),
+  attachmentId: z.string().uuid().nullable().optional(),
+});
+
+export const updateChequeStatusSchema = z.object({
+  newStatus: z.nativeEnum(ChequeStatus),
+  isoDate: z.string().regex(isoDateRegex, 'Geçerli bir tarih formatı gerekir (YYYY-MM-DD)'),
+  bankId: z.string().uuid().nullable().optional(),
+  description: z.string().max(500).nullable().optional(),
+});
+
+export const chequeListQuerySchema = z.object({
+  status: z.nativeEnum(ChequeStatus).optional(),
+  direction: z.nativeEnum(ChequeDirection).optional(),
   entryFrom: z.string().regex(isoDateRegex).optional(),
   entryTo: z.string().regex(isoDateRegex).optional(),
   maturityFrom: z.string().regex(isoDateRegex).optional(),
@@ -16,41 +45,8 @@ export const chequeQuerySchema = z.object({
   customerId: z.string().uuid().optional(),
   supplierId: z.string().uuid().optional(),
   bankId: z.string().uuid().optional(),
-  search: z.string().trim().optional(),
-  page: z.coerce.number().int().positive().optional().default(1),
-  pageSize: z.coerce.number().int().positive().max(200).optional().default(50),
+  search: z.string().optional(),
+  page: z.coerce.number().int().positive().optional(),
+  pageSize: z.coerce.number().int().positive().max(100).optional(),
 });
 
-export const createChequeSchema = z.object({
-  cekNo: z.string().trim().min(1),
-  amount: z.number().finite(),
-  entryDate: z.string().regex(isoDateRegex, 'entryDate must be YYYY-MM-DD'),
-  maturityDate: z.string().regex(isoDateRegex, 'maturityDate must be YYYY-MM-DD'),
-  direction: z.enum(['ALACAK', 'BORC']),
-  customerId: z.string().uuid().optional().nullable(),
-  supplierId: z.string().uuid().optional().nullable(),
-  bankId: z.string().uuid().optional().nullable(),
-  description: z.string().trim().optional().nullable(),
-  attachmentId: z.string().uuid().optional().nullable(),
-  createdBy: z.string().trim(),
-});
-
-export const updateChequeSchema = z.object({
-  cekNo: z.string().trim().min(1).optional(),
-  amount: z.number().finite().optional(),
-  entryDate: z.string().regex(isoDateRegex, 'entryDate must be YYYY-MM-DD').optional(),
-  maturityDate: z.string().regex(isoDateRegex, 'maturityDate must be YYYY-MM-DD').optional(),
-  customerId: z.string().uuid().optional().nullable(),
-  supplierId: z.string().uuid().optional().nullable(),
-  bankId: z.string().uuid().optional().nullable(),
-  description: z.string().trim().optional().nullable(),
-  attachmentId: z.string().uuid().optional().nullable(),
-  updatedBy: z.string().trim(),
-});
-
-export const updateChequeStatusSchema = z.object({
-  newStatus: z.enum(['KASADA', 'BANKADA_TAHSILDE', 'ODEMEDE', 'TAHSIL_EDILDI', 'KARSILIKSIZ']),
-  isoDate: z.string().regex(isoDateRegex, 'isoDate must be YYYY-MM-DD'),
-  bankId: z.string().uuid().optional().nullable(),
-  updatedBy: z.string().trim(),
-});
