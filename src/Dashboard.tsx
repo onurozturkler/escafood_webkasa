@@ -16,6 +16,7 @@ import { getNextBelgeNo } from './utils/documentNo';
 import { generateId } from './utils/id';
 import { buildLoanSchedule } from './utils/loan';
 import { getCreditCardNextDue } from './utils/creditCard';
+import { apiGet, apiPost } from './utils/api';
 import NakitGiris, { NakitGirisFormValues } from './forms/NakitGiris';
 import NakitCikis, { NakitCikisFormValues } from './forms/NakitCikis';
 import BankaNakitGiris, { BankaNakitGirisFormValues } from './forms/BankaNakitGiris';
@@ -140,6 +141,43 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
   const [dailyTransactions, setDailyTransactions] = useState<DailyTransaction[]>([]);
   const [upcomingPayments, setUpcomingPayments] = useState<UpcomingPayment[]>([]);
   const [cekInitialTab, setCekInitialTab] = useState<'GIRIS' | 'CIKIS' | 'YENI' | 'RAPOR'>('GIRIS');
+
+  // Fetch today's transactions from backend
+  useEffect(() => {
+    const fetchTodaysTransactions = async () => {
+      try {
+        const today = todayIso();
+        const response = await apiGet<{ items: any[]; totalCount: number }>(
+          `/api/transactions?from=${today}&to=${today}&sortKey=isoDate&sortDir=asc`
+        );
+        // Map backend response to frontend format
+        const mapped = response.items.map((tx) => ({
+          id: tx.id,
+          isoDate: tx.isoDate,
+          displayDate: isoToDisplay(tx.isoDate),
+          documentNo: tx.documentNo || '',
+          type: tx.type,
+          source: tx.source,
+          counterparty: tx.counterparty || '',
+          description: tx.description || '',
+          incoming: tx.incoming,
+          outgoing: tx.outgoing,
+          balanceAfter: tx.balanceAfter, // Use balanceAfter from backend
+          bankId: tx.bankId || undefined,
+          bankDelta: tx.bankDelta || undefined,
+          displayIncoming: tx.displayIncoming || undefined,
+          displayOutgoing: tx.displayOutgoing || undefined,
+          createdAtIso: tx.createdAt,
+          createdBy: tx.createdBy,
+        }));
+        setDailyTransactions(mapped);
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to fetch today\'s transactions:', error);
+      }
+    };
+    fetchTodaysTransactions();
+  }, []);
 
   useEffect(() => {
     const payments: UpcomingPayment[] = [];
@@ -446,40 +484,60 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           setOpenForm(null);
           return;
         }
-        const oldGuncel = card.guncelBorc || 0;
-        const oldEkstre = card.sonEkstreBorcu || 0;
-        const ekstreDus = Math.min(values.tutar, oldEkstre);
-        const newGuncel = Math.max(0, oldGuncel - values.tutar);
-        const newEkstre = Math.max(0, oldEkstre - ekstreDus);
-        const limit = card.limit ?? card.kartLimit ?? 0;
-        setCreditCards((prev) =>
-          prev.map((c) =>
-            c.id === card.id
-              ? { ...c, guncelBorc: newGuncel, sonEkstreBorcu: newEkstre, kullanilabilirLimit: limit - newGuncel }
-              : c
-          )
-        );
-        const tx: DailyTransaction = {
-          id: generateId(),
-          isoDate: values.islemTarihiIso,
-          displayDate: isoToDisplay(values.islemTarihiIso),
-          documentNo,
-          type: 'KREDI_KARTI_EKSTRE_ODEME',
-          source: 'BANKA',
-          counterparty: card.kartAdi,
-          description: values.aciklama || '',
-          incoming: 0,
-          outgoing: 0,
-          balanceAfter: 0,
-          bankId: values.bankaId,
-          bankDelta: -values.tutar,
-          displayOutgoing: values.tutar,
-          createdAtIso: nowIso,
-          createdBy: currentUser.email,
-        };
-        addTransactions([tx]);
-        setOpenForm(null);
-        return;
+
+        try {
+          const response = await apiPost<{
+            operation: {
+              id: string;
+              creditCardId: string;
+              isoDate: string;
+              type: string;
+              amount: number;
+            };
+            transaction: {
+              id: string;
+              isoDate: string;
+              type: string;
+              source: string;
+              bankId: string | null;
+              bankDelta: number;
+              outgoing: number;
+            };
+          }>('/api/credit-cards/payment', {
+            creditCardId: values.krediKartiId,
+            isoDate: values.islemTarihiIso,
+            amount: values.tutar,
+            description: values.aciklama || null,
+            paymentSource: 'BANKA', // Always from bank in this flow
+            bankId: values.bankaId || null,
+          });
+
+          // Map backend transaction to frontend format
+          const tx: DailyTransaction = {
+            id: response.transaction.id,
+            isoDate: response.transaction.isoDate,
+            displayDate: isoToDisplay(response.transaction.isoDate),
+            documentNo,
+            type: response.transaction.type as DailyTransactionType,
+            source: response.transaction.source as DailyTransactionSource,
+            counterparty: card.kartAdi,
+            description: values.aciklama || '',
+            incoming: 0,
+            outgoing: response.transaction.outgoing,
+            balanceAfter: 0, // Will be recalculated
+            bankId: response.transaction.bankId || undefined,
+            bankDelta: response.transaction.bankDelta,
+            createdAtIso: nowIso,
+            createdBy: currentUser.email,
+          };
+
+          addTransactions([tx]);
+          setOpenForm(null);
+          return;
+        } catch (error: any) {
+          alert(`Hata: ${error.message || 'Kredi kartı ödemesi kaydedilemedi'}`);
+          return;
+        }
       }
 
       const tx: DailyTransaction = {
@@ -563,90 +621,120 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
     setOpenForm(null);
   };
 
-  const handleKrediKartiTedarikciSaved = (values: KrediKartiTedarikciOdemeFormValues) => {
-    const card = creditCards.find((c) => c.id === values.cardId);
+  const handleKrediKartiTedarikciSaved = async (values: KrediKartiTedarikciOdemeFormValues) => {
     const supplier = suppliers.find((s) => s.id === values.supplierId);
-    if (!card || !supplier) {
+    if (!supplier) {
       setOpenForm(null);
       return;
     }
-    const ekstreAdd = values.isBeforeCutoff ? values.tutar : 0;
-    const limit = card.limit ?? card.kartLimit ?? 0;
-    const newGuncel = (card.guncelBorc || 0) + values.tutar;
-    const newEkstre = (card.sonEkstreBorcu || 0) + ekstreAdd;
-    setCreditCards((prev) =>
-      prev.map((c) =>
-        c.id === values.cardId
-          ? { ...c, guncelBorc: newGuncel, sonEkstreBorcu: newEkstre, kullanilabilirLimit: limit - newGuncel }
-          : c
-      )
-    );
-    const nowIso = new Date().toISOString();
-    const tx: DailyTransaction = {
-      id: generateId(),
-      isoDate: values.islemTarihiIso,
-      displayDate: isoToDisplay(values.islemTarihiIso),
-      documentNo: `KK-TED-${Date.now()}`,
-      type: 'KREDI_KARTI_HARCAMA',
-      source: 'KREDI_KARTI',
-      counterparty: values.muhatap || `${supplier.kod} - ${supplier.ad}`,
-      description: values.aciklama || '',
-      incoming: 0,
-      outgoing: 0,
-      balanceAfter: 0,
-      bankDelta: 0,
-      displayOutgoing: values.tutar,
-      createdAtIso: nowIso,
-      createdBy: currentUser.email,
-    };
-    addTransactions([tx]);
-    setOpenForm(null);
+
+    try {
+      const response = await apiPost<{
+        operation: {
+          id: string;
+          creditCardId: string;
+          isoDate: string;
+          type: string;
+          amount: number;
+        };
+        transaction: {
+          id: string;
+          isoDate: string;
+          type: string;
+          source: string;
+          displayOutgoing: number | null;
+        };
+      }>('/api/credit-cards/expense', {
+        creditCardId: values.cardId,
+        isoDate: values.islemTarihiIso,
+        amount: values.tutar,
+        description: values.aciklama || null,
+        counterparty: values.muhatap || `${supplier.kod} - ${supplier.ad}` || null,
+      });
+
+      // Map backend transaction to frontend format
+      const tx: DailyTransaction = {
+        id: response.transaction.id,
+        isoDate: response.transaction.isoDate,
+        displayDate: isoToDisplay(response.transaction.isoDate),
+        documentNo: `KK-TED-${Date.now()}`,
+        type: response.transaction.type as DailyTransactionType,
+        source: response.transaction.source as DailyTransactionSource,
+        counterparty: values.muhatap || `${supplier.kod} - ${supplier.ad}`,
+        description: values.aciklama || '',
+        incoming: 0,
+        outgoing: 0,
+        balanceAfter: 0, // Will be recalculated
+        bankDelta: 0,
+        displayOutgoing: response.transaction.displayOutgoing || undefined,
+        createdAtIso: new Date().toISOString(),
+        createdBy: currentUser.email,
+      };
+
+      addTransactions([tx]);
+      setOpenForm(null);
+    } catch (error: any) {
+      alert(`Hata: ${error.message || 'Kredi kartı harcaması kaydedilemedi'}`);
+    }
   };
 
-  const handleKrediKartiMasrafSaved = (values: KrediKartiMasrafFormValues) => {
-    const card = creditCards.find((c) => c.id === values.cardId);
-    if (!card) {
+  const handleKrediKartiMasrafSaved = async (values: KrediKartiMasrafFormValues) => {
+    try {
+      const meta =
+        values.masrafTuru === 'AKARYAKIT'
+          ? values.plaka
+          : values.masrafTuru === 'FATURA'
+          ? values.faturaAltTuru
+          : undefined;
+      const counterparty = values.aciklama || meta || values.masrafTuru;
+
+      const response = await apiPost<{
+        operation: {
+          id: string;
+          creditCardId: string;
+          isoDate: string;
+          type: string;
+          amount: number;
+        };
+        transaction: {
+          id: string;
+          isoDate: string;
+          type: string;
+          source: string;
+          displayOutgoing: number | null;
+        };
+      }>('/api/credit-cards/expense', {
+        creditCardId: values.cardId,
+        isoDate: values.islemTarihiIso,
+        amount: values.tutar,
+        description: values.aciklama || null,
+        counterparty: counterparty || 'Masraf' || null,
+      });
+
+      // Map backend transaction to frontend format
+      const tx: DailyTransaction = {
+        id: response.transaction.id,
+        isoDate: response.transaction.isoDate,
+        displayDate: isoToDisplay(response.transaction.isoDate),
+        documentNo: `KK-MSF-${Date.now()}`,
+        type: response.transaction.type as DailyTransactionType,
+        source: response.transaction.source as DailyTransactionSource,
+        counterparty: counterparty || 'Masraf',
+        description: values.aciklama || '',
+        incoming: 0,
+        outgoing: 0,
+        balanceAfter: 0, // Will be recalculated
+        bankDelta: 0,
+        displayOutgoing: response.transaction.displayOutgoing || undefined,
+        createdAtIso: new Date().toISOString(),
+        createdBy: currentUser.email,
+      };
+
+      addTransactions([tx]);
       setOpenForm(null);
-      return;
+    } catch (error: any) {
+      alert(`Hata: ${error.message || 'Kredi kartı masrafı kaydedilemedi'}`);
     }
-    const ekstreAdd = values.isBeforeCutoff ? values.tutar : 0;
-    const limit = card.limit ?? card.kartLimit ?? 0;
-    const newGuncel = (card.guncelBorc || 0) + values.tutar;
-    const newEkstre = (card.sonEkstreBorcu || 0) + ekstreAdd;
-    setCreditCards((prev) =>
-      prev.map((c) =>
-        c.id === values.cardId
-          ? { ...c, guncelBorc: newGuncel, sonEkstreBorcu: newEkstre, kullanilabilirLimit: limit - newGuncel }
-          : c
-      )
-    );
-    const meta =
-      values.masrafTuru === 'AKARYAKIT'
-        ? values.plaka
-        : values.masrafTuru === 'FATURA'
-        ? values.faturaAltTuru
-        : undefined;
-    const counterparty = values.aciklama || meta || values.masrafTuru;
-    const nowIso = new Date().toISOString();
-    const tx: DailyTransaction = {
-      id: generateId(),
-      isoDate: values.islemTarihiIso,
-      displayDate: isoToDisplay(values.islemTarihiIso),
-      documentNo: `KK-MSF-${Date.now()}`,
-      type: 'KREDI_KARTI_HARCAMA',
-      source: 'KREDI_KARTI',
-      counterparty: counterparty || 'Masraf',
-      description: values.aciklama || '',
-      incoming: 0,
-      outgoing: 0,
-      balanceAfter: 0,
-      bankDelta: 0,
-      displayOutgoing: values.tutar,
-      createdAtIso: nowIso,
-      createdBy: currentUser.email,
-    };
-    addTransactions([tx]);
-    setOpenForm(null);
   };
 
   const handleCekIslemSaved = (payload: CekIslemPayload) => {
@@ -971,7 +1059,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         )}
         {activeView === 'KASA_DEFTERI' && (
           <div className="p-4">
-            <KasaDefteriView transactions={dailyTransactions} onBackToDashboard={handleBackToDashboard} />
+            <KasaDefteriView onBackToDashboard={handleBackToDashboard} />
           </div>
         )}
         {activeView === 'ISLEM_LOGU' && (
@@ -986,7 +1074,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         )}
         {activeView === 'NAKIT_AKIS' && (
           <div className="p-4">
-            <NakitAkisReport transactions={dailyTransactions} banks={banks} onBackToDashboard={handleBackToDashboard} />
+            <NakitAkisReport banks={banks} onBackToDashboard={handleBackToDashboard} />
           </div>
         )}
         {activeView === 'CEK_SENET' && (

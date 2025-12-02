@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   DailyTransaction,
   getTransactionSourceLabel,
@@ -7,9 +7,9 @@ import {
 import { isoToDisplay } from '../utils/date';
 import { formatTl } from '../utils/money';
 import { HomepageIcon } from '../components/HomepageIcon';
+import { apiGet } from '../utils/api';
 
 interface KasaDefteriViewProps {
-  transactions: DailyTransaction[];
   onBackToDashboard: () => void;
 }
 
@@ -54,7 +54,9 @@ const sorters: Record<SortKey, (a: DailyTransaction, b: DailyTransaction) => num
   balanceAfter: (a, b) => a.balanceAfter - b.balanceAfter,
 };
 
-export default function KasaDefteriView({ transactions, onBackToDashboard }: KasaDefteriViewProps) {
+export default function KasaDefteriView({ onBackToDashboard }: KasaDefteriViewProps) {
+  const [transactions, setTransactions] = useState<DailyTransaction[]>([]);
+  const [loading, setLoading] = useState(true);
   const [filterStartIso, setFilterStartIso] = useState('');
   const [filterEndIso, setFilterEndIso] = useState('');
   const [filterDocumentNo, setFilterDocumentNo] = useState('');
@@ -66,28 +68,94 @@ export default function KasaDefteriView({ transactions, onBackToDashboard }: Kas
   const [quickRange, setQuickRange] = useState<QuickRange>('NONE');
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [previewTitle, setPreviewTitle] = useState('');
+  const [openingBalance, setOpeningBalance] = useState(0);
+  const [closingBalance, setClosingBalance] = useState(0);
+  const [totalIncoming, setTotalIncoming] = useState(0);
+  const [totalOutgoing, setTotalOutgoing] = useState(0);
 
-  const filteredTransactions = useMemo(() => {
-    return transactions.filter((tx) => {
-      if (filterStartIso && tx.isoDate < filterStartIso) return false;
-      if (filterEndIso && tx.isoDate > filterEndIso) return false;
-      if (filterDocumentNo && !tx.documentNo.toLowerCase().includes(filterDocumentNo.toLowerCase())) return false;
-      if (filterType && !getTransactionTypeLabel(tx.type).toLowerCase().includes(filterType.toLowerCase())) return false;
-      if (filterCounterparty && !tx.counterparty.toLowerCase().includes(filterCounterparty.toLowerCase())) return false;
-      if (filterDescription && !tx.description.toLowerCase().includes(filterDescription.toLowerCase())) return false;
-      return true;
-    });
-  }, [transactions, filterStartIso, filterEndIso, filterDocumentNo, filterType, filterCounterparty, filterDescription]);
+  // Fetch transactions from backend
+  useEffect(() => {
+    const fetchTransactions = async () => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (filterStartIso) params.append('from', filterStartIso);
+        if (filterEndIso) params.append('to', filterEndIso);
+        if (filterDocumentNo) params.append('documentNo', filterDocumentNo);
+        if (filterType) {
+          // Find the enum value from label
+          const typeMap: Record<string, string> = {
+            'Nakit Tahsilat': 'NAKIT_TAHSILAT',
+            'Nakit Ödeme': 'NAKIT_ODEME',
+            'Kasa → Banka Transfer': 'KASA_BANKA_TRANSFER',
+            'Banka → Kasa Transfer': 'BANKA_KASA_TRANSFER',
+            'Banka Havale Girişi': 'BANKA_HAVALE_GIRIS',
+            'Banka Havale Çıkışı': 'BANKA_HAVALE_CIKIS',
+            'POS Tahsilat (Brüt)': 'POS_TAHSILAT_BRUT',
+            'POS Komisyonu': 'POS_KOMISYONU',
+            'Kredi Kartı Harcaması': 'KREDI_KARTI_HARCAMA',
+            'Kredi Kartı Ekstre Ödemesi': 'KREDI_KARTI_EKSTRE_ODEME',
+            'Çek Girişi': 'CEK_GIRISI',
+            'Çek Tahsil (Banka)': 'CEK_TAHSIL_BANKA',
+            'Çek Ödemesi': 'CEK_ODENMESI',
+            'Karşılıksız Çek': 'CEK_KARSILIKSIZ',
+            'Devir Bakiye': 'DEVIR_BAKIYE',
+            'Düzeltme': 'DUZELTME',
+          };
+          const typeValue = typeMap[filterType] || filterType;
+          params.append('type', typeValue);
+        }
+        if (filterCounterparty) params.append('counterparty', filterCounterparty);
+        if (filterDescription) params.append('description', filterDescription);
+        params.append('sortKey', sortKey);
+        params.append('sortDir', sortDir);
 
-  const sortedTransactions = useMemo(() => {
-    const arr = [...filteredTransactions];
-    const sorter = sorters[sortKey];
-    arr.sort((a, b) => {
-      const cmp = sorter(a, b);
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
-    return arr;
-  }, [filteredTransactions, sortKey, sortDir]);
+        const response = await apiGet<{
+          items: any[];
+          totalCount: number;
+          totalIncoming: number;
+          totalOutgoing: number;
+          openingBalance: number;
+          closingBalance: number;
+        }>(`/api/reports/kasa-defteri?${params.toString()}`);
+
+        // Map backend response to frontend format
+        const mapped = response.items.map((tx) => ({
+          id: tx.id,
+          isoDate: tx.isoDate,
+          displayDate: isoToDisplay(tx.isoDate),
+          documentNo: tx.documentNo || '',
+          type: tx.type,
+          source: tx.source,
+          counterparty: tx.counterparty || '',
+          description: tx.description || '',
+          incoming: tx.incoming,
+          outgoing: tx.outgoing,
+          balanceAfter: tx.balanceAfter, // Use balanceAfter from backend
+          bankId: undefined,
+          bankDelta: undefined,
+          displayIncoming: undefined,
+          displayOutgoing: undefined,
+        }));
+
+        setTransactions(mapped);
+        setOpeningBalance(response.openingBalance);
+        setClosingBalance(response.closingBalance);
+        setTotalIncoming(response.totalIncoming);
+        setTotalOutgoing(response.totalOutgoing);
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to fetch transactions:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTransactions();
+  }, [filterStartIso, filterEndIso, filterDocumentNo, filterType, filterCounterparty, filterDescription, sortKey, sortDir]);
+
+  // Transactions are already filtered and sorted by backend
+  const sortedTransactions = transactions;
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {

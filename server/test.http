@@ -1,0 +1,13 @@
+POST http://localhost:4000/api/transactions
+Content-Type: application/json
+
+{
+  "type": "NAKIT_TAHSILAT",
+  "source": "KASA",
+  "isoDate": "2025-01-01",
+  "incoming": 10000,
+  "outgoing": 0,
+  "bankDelta": 0,
+  "counterparty": "TEST",
+  "description": "Test nakit tahsilat"
+}

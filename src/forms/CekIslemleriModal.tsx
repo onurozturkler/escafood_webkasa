@@ -11,6 +11,8 @@ import { Supplier } from '../models/supplier';
 import { isoToDisplay, todayIso } from '../utils/date';
 import { generateId } from '../utils/id';
 import { formatTl } from '../utils/money';
+import { apiPost, apiPut } from '../utils/api';
+import { mapToBackendStatus, mapToFrontendStatus } from '../utils/chequeStatus';
 
 export interface CekIslemPayload {
   updatedCheques: Cheque[];
@@ -286,186 +288,145 @@ export default function CekIslemleriModal({
     setDirty(true);
   };
 
-  const handleSaveGiris = () => {
+  const handleSaveGiris = async () => {
     if (!girisCustomerId || !girisCekNo || !girisBankaAdi || !girisTutar || girisTutar <= 0 || !girisVadeTarihi) return;
     if (!girisChequeDataUrl) {
       alert('Çek görseli eklenmeden bu işlem kaydedilemez.');
       return;
     }
-    const newCheque: Cheque = {
-      id: generateId(),
-      cekNo: girisCekNo,
-      bankaAdi: girisBankaAdi,
-      tutar: girisTutar,
-      vadeTarihi: girisVadeTarihi,
-      duzenleyen: girisDuzenleyen || customers.find((c) => c.id === girisCustomerId)?.ad || '',
-      lehtar: girisLehtar || 'Esca Food AŞ',
-      musteriId: girisCustomerId,
-      status: 'KASADA',
-      kasaMi: true,
-      aciklama: girisAciklama || undefined,
-      imageUrl: girisChequeDataUrl || undefined,
-      imageDataUrl: girisChequeDataUrl || undefined,
-      imageFileName: girisChequeFile?.name,
-    };
-    onSaved({ updatedCheques: [...cheques, newCheque] });
+
+    try {
+      // TODO: Upload attachment first to get attachmentId
+      // For now, creating cheque without attachment
+      const response = await apiPost<{
+        id: string;
+        cekNo: string;
+        amount: number;
+        entryDate: string;
+        maturityDate: string;
+        status: string;
+        direction: 'ALACAK';
+        customerId: string | null;
+        supplierId: string | null;
+        bankId: string | null;
+        description: string | null;
+      }>('/api/cheques', {
+        cekNo: girisCekNo,
+        amount: girisTutar,
+        entryDate: todayIso(), // Using today as entry date
+        maturityDate: girisVadeTarihi,
+        direction: 'ALACAK',
+        customerId: girisCustomerId,
+        supplierId: null,
+        bankId: null, // Frontend doesn't have bankId for giris, only bankaAdi
+        description: girisAciklama || null,
+        attachmentId: null, // TODO: Upload and get attachmentId
+      });
+
+      // Map backend response to frontend format
+      const newCheque: Cheque = {
+        id: response.id,
+        cekNo: response.cekNo,
+        bankaAdi: girisBankaAdi,
+        tutar: response.amount,
+        vadeTarihi: response.maturityDate,
+        duzenleyen: girisDuzenleyen || customers.find((c) => c.id === girisCustomerId)?.ad || '',
+        lehtar: girisLehtar || 'Esca Food AŞ',
+        musteriId: response.customerId || undefined,
+        status: mapToFrontendStatus(response.status as any, 'ALACAK'),
+        kasaMi: response.status === 'KASADA',
+        aciklama: response.description || undefined,
+        imageUrl: girisChequeDataUrl || undefined,
+        imageDataUrl: girisChequeDataUrl || undefined,
+        imageFileName: girisChequeFile?.name,
+      };
+
+      onSaved({ updatedCheques: [...cheques, newCheque] });
+    } catch (error: any) {
+      alert(`Hata: ${error.message || 'Çek kaydedilemedi'}`);
+    }
   };
 
-  const handleSaveCikis = () => {
+  const handleSaveCikis = async () => {
     const selectedCheque = cikisEligibleCheques.find((c) => c.id === cikisSelectedChequeId);
     if (!selectedCheque) return;
     if (cikisReason === 'TAHSIL_BANKADAN' && !cikisTahsilBankasiId) return;
     if (cikisReason === 'TEDARIKCI_VERILDI' && !cikisSupplierId) return;
 
-    let newStatus: ChequeStatus = 'CIKMIS';
-    switch (cikisReason) {
-      case 'TAHSIL_ELDEN':
-        newStatus = 'TAHSIL_OLDU';
-        break;
-      case 'TAHSIL_BANKADAN':
-        newStatus = 'BANKADA_TAHSILDE';
-        break;
-      case 'TEDARIKCI_VERILDI':
-        newStatus = 'ODEMEDE';
-        break;
-      case 'YAZILDI':
-        newStatus = 'KARSILIKSIZ';
-        break;
-      case 'IADE':
-        newStatus = 'IPTAL';
-        break;
-      case 'DIGER':
-      default:
-        newStatus = 'CIKMIS';
-        break;
+    try {
+      // Determine backend status based on reason
+      let backendStatus: 'BANKADA_TAHSILDE' | 'TAHSIL_EDILDI' | 'ODEMEDE' | 'KARSILIKSIZ';
+      let bankId: string | null = null;
+
+      switch (cikisReason) {
+        case 'TAHSIL_ELDEN':
+          backendStatus = 'TAHSIL_EDILDI';
+          bankId = null; // Collected into cash
+          break;
+        case 'TAHSIL_BANKADAN':
+          backendStatus = 'TAHSIL_EDILDI';
+          bankId = cikisTahsilBankasiId;
+          break;
+        case 'TEDARIKCI_VERILDI':
+          // This is for BORC cheques - update status to ODEMEDE first, then later to TAHSIL_EDILDI when paid
+          // For now, just update to ODEMEDE
+          backendStatus = 'ODEMEDE';
+          bankId = null;
+          break;
+        case 'YAZILDI':
+          backendStatus = 'KARSILIKSIZ';
+          bankId = null;
+          break;
+        case 'IADE':
+        case 'DIGER':
+        default:
+          // These don't map to backend statuses - skip API call for now
+          alert('Bu işlem türü henüz desteklenmiyor.');
+          return;
+      }
+
+      // Update cheque status via API
+      const response = await apiPut<{
+        cheque: {
+          id: string;
+          cekNo: string;
+          amount: number;
+          entryDate: string;
+          maturityDate: string;
+          status: string;
+          direction: 'ALACAK' | 'BORC';
+          customerId: string | null;
+          supplierId: string | null;
+          bankId: string | null;
+          description: string | null;
+        };
+        transactionId: string | null;
+      }>(`/api/cheques/${selectedCheque.id}/status`, {
+        newStatus: backendStatus,
+        isoDate: cikisIslemTarihi,
+        bankId: bankId,
+        description: cikisAciklama || `Çek No: ${selectedCheque.cekNo}`,
+      });
+
+      // Map backend response to frontend format
+      const updatedCheque: Cheque = {
+        ...selectedCheque,
+        status: mapToFrontendStatus(response.cheque.status as any, response.cheque.direction),
+        kasaMi: response.cheque.status === 'KASADA',
+        bankaId: response.cheque.bankId || undefined,
+        aciklama: response.cheque.description || selectedCheque.aciklama,
+      };
+
+      const updatedCheques = cheques.map((c) => (c.id === selectedCheque.id ? updatedCheque : c));
+
+      // Backend created the transaction, so we don't need to create it manually
+      onSaved({ updatedCheques, transaction: undefined });
+    } catch (error: any) {
+      alert(`Hata: ${error.message || 'Çek durumu güncellenemedi'}`);
     }
-
-    const tahsilBank = cikisReason === 'TAHSIL_BANKADAN' ? banks.find((b) => b.id === cikisTahsilBankasiId) : undefined;
-    const tedarikci = cikisReason === 'TEDARIKCI_VERILDI' ? suppliers.find((s) => s.id === cikisSupplierId) : undefined;
-
-    const updatedCheques = cheques.map((c) => {
-      if (c.id !== selectedCheque.id) return c;
-      return {
-        ...c,
-        status: newStatus,
-        kasaMi: false,
-        tedarikciId: tedarikci ? tedarikci.id : c.tedarikciId,
-        bankaId: tahsilBank ? tahsilBank.id : c.bankaId,
-        bankaAdi: tahsilBank ? tahsilBank.hesapAdi || tahsilBank.bankaAdi : c.bankaAdi,
-        aciklama: cikisAciklama || c.aciklama,
-      };
-    });
-
-    const nowIso = new Date().toISOString();
-    const description = `Çek No: ${selectedCheque.cekNo}${cikisAciklama ? ` – ${cikisAciklama}` : ''}`;
-    let tx: DailyTransaction | undefined;
-
-    if (cikisReason === 'TAHSIL_ELDEN') {
-      tx = {
-        id: generateId(),
-        isoDate: cikisIslemTarihi,
-        displayDate: isoToDisplay(cikisIslemTarihi),
-        documentNo: `CEK-${selectedCheque.cekNo}`,
-        type: 'CEK_TAHSIL_BANKA',
-        source: 'CEK',
-        counterparty: 'Tahsil Elden',
-        description,
-        incoming: selectedCheque.tutar,
-        outgoing: 0,
-        balanceAfter: 0,
-        displayIncoming: selectedCheque.tutar,
-        createdAtIso: nowIso,
-        createdBy: currentUserEmail,
-      };
-    } else if (cikisReason === 'TAHSIL_BANKADAN' && tahsilBank) {
-      tx = {
-        id: generateId(),
-        isoDate: cikisIslemTarihi,
-        displayDate: isoToDisplay(cikisIslemTarihi),
-        documentNo: `CEK-${selectedCheque.cekNo}`,
-        type: 'CEK_TAHSIL_BANKA',
-        source: 'CEK',
-        counterparty: tahsilBank.hesapAdi || tahsilBank.bankaAdi || 'Banka',
-        description,
-        incoming: 0,
-        outgoing: 0,
-        balanceAfter: 0,
-        bankId: tahsilBank.id,
-        bankDelta: selectedCheque.tutar,
-        displayIncoming: selectedCheque.tutar,
-        createdAtIso: nowIso,
-        createdBy: currentUserEmail,
-      };
-    } else if (cikisReason === 'TEDARIKCI_VERILDI') {
-      tx = {
-        id: generateId(),
-        isoDate: cikisIslemTarihi,
-        displayDate: isoToDisplay(cikisIslemTarihi),
-        documentNo: `CEK-${selectedCheque.cekNo}`,
-        type: 'CEK_ODENMESI',
-        source: 'CEK',
-        counterparty: tedarikci ? `${tedarikci.kod} - ${tedarikci.ad}` : 'Tedarikçi',
-        description,
-        incoming: 0,
-        outgoing: 0,
-        balanceAfter: 0,
-        createdAtIso: nowIso,
-        createdBy: currentUserEmail,
-      };
-    } else if (cikisReason === 'YAZILDI') {
-      tx = {
-        id: generateId(),
-        isoDate: cikisIslemTarihi,
-        displayDate: isoToDisplay(cikisIslemTarihi),
-        documentNo: `CEK-${selectedCheque.cekNo}`,
-        type: 'CEK_ODENMESI',
-        source: 'CEK',
-        counterparty: 'Karşılıksız',
-        description,
-        incoming: 0,
-        outgoing: 0,
-        balanceAfter: 0,
-        createdAtIso: nowIso,
-        createdBy: currentUserEmail,
-      };
-    } else if (cikisReason === 'IADE') {
-      tx = {
-        id: generateId(),
-        isoDate: cikisIslemTarihi,
-        displayDate: isoToDisplay(cikisIslemTarihi),
-        documentNo: `CEK-${selectedCheque.cekNo}`,
-        type: 'DUZELTME',
-        source: 'CEK',
-        counterparty: 'İade',
-        description,
-        incoming: 0,
-        outgoing: 0,
-        balanceAfter: 0,
-        createdAtIso: nowIso,
-        createdBy: currentUserEmail,
-      };
-    } else if (cikisReason === 'DIGER') {
-      tx = {
-        id: generateId(),
-        isoDate: cikisIslemTarihi,
-        displayDate: isoToDisplay(cikisIslemTarihi),
-        documentNo: `CEK-${selectedCheque.cekNo}`,
-        type: 'DUZELTME',
-        source: 'CEK',
-        counterparty: 'Diğer',
-        description,
-        incoming: 0,
-        outgoing: 0,
-        balanceAfter: 0,
-        createdAtIso: nowIso,
-        createdBy: currentUserEmail,
-      };
-    }
-
-    onSaved({ updatedCheques, transaction: tx });
   };
 
-  const handleSaveYeni = () => {
+  const handleSaveYeni = async () => {
     const bank = banks.find((b) => b.id === yeniBankId && b.cekKarnesiVarMi);
     const supplier = suppliers.find((s) => s.id === yeniSupplierId);
     if (!bank || !supplier || !yeniCekNo || !yeniTutar || yeniTutar <= 0 || !yeniVadeTarihi) return;
@@ -473,24 +434,57 @@ export default function CekIslemleriModal({
       alert('Çek görseli eklenmeden bu işlem kaydedilemez.');
       return;
     }
-    const newCheque: Cheque = {
-      id: generateId(),
-      cekNo: yeniCekNo,
-      bankaId: bank.id,
-      bankaAdi: bank.bankaAdi || bank.hesapAdi,
-      tutar: yeniTutar,
-      vadeTarihi: yeniVadeTarihi,
-      duzenleyen: yeniDuzenleyen,
-      lehtar: yeniLehtar || supplier.ad,
-      tedarikciId: supplier.id,
-      status: 'ODEMEDE',
-      kasaMi: false,
-      aciklama: yeniAciklama || undefined,
-      imageUrl: yeniChequeDataUrl || undefined,
-      imageDataUrl: yeniChequeDataUrl || undefined,
-      imageFileName: yeniChequeFile?.name,
-    };
-    onSaved({ updatedCheques: [...cheques, newCheque] });
+
+    try {
+      // TODO: Upload attachment first to get attachmentId
+      const response = await apiPost<{
+        id: string;
+        cekNo: string;
+        amount: number;
+        entryDate: string;
+        maturityDate: string;
+        status: string;
+        direction: 'BORC';
+        customerId: string | null;
+        supplierId: string | null;
+        bankId: string | null;
+        description: string | null;
+      }>('/api/cheques', {
+        cekNo: yeniCekNo,
+        amount: yeniTutar,
+        entryDate: todayIso(),
+        maturityDate: yeniVadeTarihi,
+        direction: 'BORC',
+        customerId: null,
+        supplierId: yeniSupplierId,
+        bankId: yeniBankId,
+        description: yeniAciklama || null,
+        attachmentId: null, // TODO: Upload and get attachmentId
+      });
+
+      // Map backend response to frontend format
+      const newCheque: Cheque = {
+        id: response.id,
+        cekNo: response.cekNo,
+        bankaId: response.bankId || undefined,
+        bankaAdi: bank.bankaAdi || bank.hesapAdi,
+        tutar: response.amount,
+        vadeTarihi: response.maturityDate,
+        duzenleyen: yeniDuzenleyen,
+        lehtar: yeniLehtar || supplier.ad,
+        tedarikciId: response.supplierId || undefined,
+        status: mapToFrontendStatus(response.status as any, 'BORC'),
+        kasaMi: false,
+        aciklama: response.description || undefined,
+        imageUrl: yeniChequeDataUrl || undefined,
+        imageDataUrl: yeniChequeDataUrl || undefined,
+        imageFileName: yeniChequeFile?.name,
+      };
+
+      onSaved({ updatedCheques: [...cheques, newCheque] });
+    } catch (error: any) {
+      alert(`Hata: ${error.message || 'Çek kaydedilemedi'}`);
+    }
   };
 
   if (!isOpen) return null;
