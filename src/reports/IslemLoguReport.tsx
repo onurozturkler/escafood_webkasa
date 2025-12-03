@@ -8,6 +8,7 @@ import { BankMaster } from '../models/bank';
 import { isoToDisplay, todayIso } from '../utils/date';
 import { formatTl } from '../utils/money';
 import { HomepageIcon } from '../components/HomepageIcon';
+import { printReport } from '../utils/pdfExport';
 
 interface Props {
   transactions: DailyTransaction[];
@@ -125,13 +126,19 @@ export function IslemLoguReport({ transactions, banks, currentUserEmail, onBackT
       <div className="flex items-center justify-between gap-3 mb-2">
         <h1 className="text-lg md:text-xl font-semibold text-slate-800">İşlem Logu</h1>
         {onBackToDashboard && (
-          <div className="no-print">
+          <div className="no-print flex items-center gap-2">
             <button
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 text-sm"
               onClick={onBackToDashboard}
             >
               <HomepageIcon className="w-4 h-4" />
               <span>Ana Sayfaya Dön</span>
+            </button>
+            <button
+              className="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-medium"
+              onClick={() => printReport()}
+            >
+              📄 PDF / Döküm Al
             </button>
           </div>
         )}

@@ -23,7 +23,7 @@ function validateQuery(schema: z.ZodSchema) {
       if (error instanceof z.ZodError) {
         res.status(400).json({
           message: 'Validation error',
-          errors: error.errors,
+          errors: error.issues,
         });
         return;
       }

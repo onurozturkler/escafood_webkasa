@@ -8,12 +8,13 @@ import {
   updateChequeSchema,
   updateChequeStatusSchema,
 } from './cheques.validation';
+import { getUserId } from '../../config/auth';
 
 const service = new ChequesService();
 
 function handleError(res: Response, error: unknown) {
   if (error instanceof ZodError) {
-    return res.status(400).json({ message: 'Validation error', details: error.errors });
+    return res.status(400).json({ message: 'Validation error', details: error.issues });
   }
 
   if (error instanceof Error) {
@@ -27,7 +28,7 @@ export class ChequesController {
   async list(req: Request, res: Response) {
     try {
       const query = chequeQuerySchema.parse(req.query);
-      const cheques = await service.getCheques(query);
+      const cheques = await service.listCheques(query);
       res.json(cheques);
     } catch (error) {
       handleError(res, error);
@@ -37,7 +38,8 @@ export class ChequesController {
   async create(req: Request, res: Response) {
     try {
       const payload = createChequeSchema.parse(req.body);
-      const cheque = await service.createCheque(payload);
+      const createdBy = getUserId(req);
+      const cheque = await service.createCheque(payload, createdBy);
       res.status(201).json(cheque);
     } catch (error) {
       handleError(res, error);
@@ -48,7 +50,8 @@ export class ChequesController {
     try {
       const params = chequeIdParamSchema.parse(req.params);
       const payload = updateChequeSchema.parse(req.body);
-      const cheque = await service.updateCheque(params.id, payload);
+      const updatedBy = getUserId(req);
+      const cheque = await service.updateCheque(params.id, payload, updatedBy);
       res.json(cheque);
     } catch (error) {
       handleError(res, error);
@@ -59,7 +62,8 @@ export class ChequesController {
     try {
       const params = chequeIdParamSchema.parse(req.params);
       const payload = updateChequeStatusSchema.parse(req.body);
-      const result = await service.updateChequeStatus(params.id, payload);
+      const updatedBy = getUserId(req);
+      const result = await service.updateChequeStatus(params.id, payload, updatedBy);
       res.json(result);
     } catch (error) {
       handleError(res, error);

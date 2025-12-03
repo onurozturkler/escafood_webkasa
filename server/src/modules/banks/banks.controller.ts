@@ -2,12 +2,13 @@ import { Request, Response } from 'express';
 import { ZodError } from 'zod';
 import { BanksService } from './banks.service';
 import { bankIdParamSchema, createBankSchema, deleteBankSchema, updateBankSchema } from './banks.validation';
+import { getUserId } from '../../config/auth';
 
 const service = new BanksService();
 
 function handleError(res: Response, error: unknown) {
   if (error instanceof ZodError) {
-    return res.status(400).json({ message: 'Validation error', details: error.errors });
+    return res.status(400).json({ message: 'Validation error', details: error.issues });
   }
 
   if (error instanceof Error) {
@@ -30,7 +31,8 @@ export class BanksController {
   async create(req: Request, res: Response) {
     try {
       const payload = createBankSchema.parse(req.body);
-      const bank = await service.createBank(payload);
+      const createdBy = getUserId(req);
+      const bank = await service.createBank(payload, createdBy);
       res.status(201).json(bank);
     } catch (error) {
       handleError(res, error);
@@ -41,7 +43,8 @@ export class BanksController {
     try {
       const params = bankIdParamSchema.parse(req.params);
       const payload = updateBankSchema.parse(req.body);
-      const bank = await service.updateBank(params.id, payload);
+      const updatedBy = getUserId(req);
+      const bank = await service.updateBank(params.id, payload, updatedBy);
       res.json(bank);
     } catch (error) {
       handleError(res, error);
@@ -51,8 +54,9 @@ export class BanksController {
   async remove(req: Request, res: Response) {
     try {
       const params = bankIdParamSchema.parse(req.params);
-      const payload = deleteBankSchema.parse(req.body);
-      const bank = await service.softDeleteBank(params.id, payload);
+      deleteBankSchema.parse(req.body); // Validate but don't use payload
+      const deletedBy = getUserId(req);
+      const bank = await service.softDeleteBank(params.id, deletedBy);
       res.json(bank);
     } catch (error) {
       handleError(res, error);

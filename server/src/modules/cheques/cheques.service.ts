@@ -1,5 +1,5 @@
 import { PrismaClient, ChequeStatus, ChequeDirection, DailyTransactionType, DailyTransactionSource } from '@prisma/client';
-import prisma from '../../config/prisma';
+import { prisma } from '../../config/prisma';
 import {
   CreateChequeDto,
   UpdateChequeDto,
@@ -147,6 +147,48 @@ export class ChequesService {
   async createCheque(data: CreateChequeDto, createdBy: string): Promise<ChequeDto> {
     const defaultStatus = getDefaultStatus(data.direction);
 
+    // Validate and set customerId, supplierId, bankId based on direction
+    let customerId: string | null = null;
+    let supplierId: string | null = null;
+    let bankId: string | null = null;
+
+    if (data.direction === 'ALACAK') {
+      // Customer cheque: set customerId if provided and valid
+      if (data.customerId) {
+        const customer = await prisma.customer.findUnique({
+          where: { id: data.customerId, deletedAt: null },
+        });
+        if (customer) {
+          customerId = data.customerId;
+        }
+        // If customer doesn't exist, leave as null (no FK error)
+      }
+      supplierId = null; // Always null for customer cheques
+    } else {
+      // BORC (supplier cheque): set supplierId if provided and valid
+      if (data.supplierId) {
+        const supplier = await prisma.supplier.findUnique({
+          where: { id: data.supplierId, deletedAt: null },
+        });
+        if (supplier) {
+          supplierId = data.supplierId;
+        }
+        // If supplier doesn't exist, leave as null (no FK error)
+      }
+      customerId = null; // Always null for supplier cheques
+    }
+
+    // Validate bankId if provided
+    if (data.bankId) {
+      const bank = await prisma.bank.findUnique({
+        where: { id: data.bankId, deletedAt: null },
+      });
+      if (bank) {
+        bankId = data.bankId;
+      }
+      // If bank doesn't exist, leave as null (no FK error)
+    }
+
     const cheque = await prisma.cheque.create({
       data: {
         cekNo: data.cekNo,
@@ -155,9 +197,9 @@ export class ChequesService {
         maturityDate: data.maturityDate,
         status: defaultStatus,
         direction: data.direction,
-        customerId: data.customerId || null,
-        supplierId: data.supplierId || null,
-        bankId: data.bankId || null,
+        customerId,
+        supplierId,
+        bankId,
         description: data.description || null,
         attachmentId: data.attachmentId || null,
         createdBy,
@@ -205,13 +247,52 @@ export class ChequesService {
       throw new Error('Cannot update deleted cheque');
     }
 
+    // Validate and set customerId, supplierId, bankId if provided
+    const updateData: any = {
+      ...data,
+      updatedBy,
+      updatedAt: new Date(),
+    };
+
+    // Validate customerId if provided
+    if (data.customerId !== undefined) {
+      if (data.customerId) {
+        const customer = await prisma.customer.findUnique({
+          where: { id: data.customerId, deletedAt: null },
+        });
+        updateData.customerId = customer ? data.customerId : null;
+      } else {
+        updateData.customerId = null;
+      }
+    }
+
+    // Validate supplierId if provided
+    if (data.supplierId !== undefined) {
+      if (data.supplierId) {
+        const supplier = await prisma.supplier.findUnique({
+          where: { id: data.supplierId, deletedAt: null },
+        });
+        updateData.supplierId = supplier ? data.supplierId : null;
+      } else {
+        updateData.supplierId = null;
+      }
+    }
+
+    // Validate bankId if provided
+    if (data.bankId !== undefined) {
+      if (data.bankId) {
+        const bank = await prisma.bank.findUnique({
+          where: { id: data.bankId, deletedAt: null },
+        });
+        updateData.bankId = bank ? data.bankId : null;
+      } else {
+        updateData.bankId = null;
+      }
+    }
+
     const updated = await prisma.cheque.update({
       where: { id },
-      data: {
-        ...data,
-        updatedBy,
-        updatedAt: new Date(),
-      },
+      data: updateData,
       include: {
         bank: {
           select: {
@@ -365,7 +446,7 @@ export class ChequesService {
     } else if (data.newStatus === 'KARSILIKSIZ') {
       // Optional info-only row for bounced cheque
       const amount = Number(cheque.amount);
-      const counterparty = cheque.direction === 'ALACAK' ? cheque.customer?.name : cheque.supplier?.name || null;
+      const counterparty = (cheque.direction === 'ALACAK' ? cheque.customer?.name : cheque.supplier?.name) || null;
       const description = data.description || `Çek No: ${cheque.cekNo} - Karşılıksız`;
 
       transactionId = await createChequeTransaction(
@@ -387,11 +468,12 @@ export class ChequesService {
     }
 
     // Update cheque status
+    // TODO: bankId FK kullanmıyoruz, şimdilik null tutuyoruz
     const updated = await prisma.cheque.update({
       where: { id },
       data: {
         status: data.newStatus,
-        bankId: data.bankId !== undefined ? data.bankId : cheque.bankId,
+        bankId: null, // FK kullanmıyoruz
         updatedBy,
         updatedAt: new Date(),
       },
@@ -556,7 +638,7 @@ export class ChequesService {
       prisma.cheque.count({ where }),
     ]);
 
-    const totalAmount = cheques.reduce((sum, c) => sum + Number(c.amount), 0);
+    const totalAmount = cheques.reduce((sum: number, c) => sum + Number(c.amount), 0);
 
     // Calculate upcoming maturities
     const today = new Date().toISOString().split('T')[0];

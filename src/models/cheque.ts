@@ -29,6 +29,8 @@ export function normalizeLegacyChequeStatus(status: string): ChequeStatus {
   }
 }
 
+export type ChequeDirection = 'ALACAK' | 'BORC';
+
 export interface Cheque {
   id: string;
   cekNo: string;
@@ -40,6 +42,7 @@ export interface Cheque {
   lehtar: string;
   musteriId?: string;
   tedarikciId?: string;
+  direction?: ChequeDirection; // ALACAK = customer cheque, BORC = our issued cheque
   status: ChequeStatus;
   kasaMi: boolean;
   aciklama?: string;

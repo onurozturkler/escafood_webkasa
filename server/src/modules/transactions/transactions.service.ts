@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import prisma from '../../config/prisma';
+import { prisma } from '../../config/prisma';
 import {
   CreateTransactionDto,
   UpdateTransactionDto,
@@ -71,6 +71,7 @@ export class TransactionsService {
         bankId: data.bankId || null,
         creditCardId: data.creditCardId || null,
         chequeId: data.chequeId || null,
+        loanInstallmentId: data.loanInstallmentId || null,
         customerId: data.customerId || null,
         supplierId: data.supplierId || null,
         attachmentId: data.attachmentId || null,
@@ -200,15 +201,21 @@ export class TransactionsService {
     const pageSize = query.pageSize || 50;
     const skip = (page - 1) * pageSize;
 
-    // Determine sort order
+    // Determine sort order - Prisma requires orderBy to be an array
     const sortKey = query.sortKey || 'isoDate';
     const sortDir = query.sortDir || 'desc';
-    const orderBy: any = {};
-    orderBy[sortKey] = sortDir;
-
-    // For date sorting, add createdAt as secondary sort
+    
+    // Build orderBy array based on sortKey
+    const orderBy: any[] = [];
     if (sortKey === 'isoDate') {
-      orderBy.createdAt = sortDir;
+      // For date sorting, use isoDate first, then createdAt as secondary sort
+      orderBy.push({ isoDate: sortDir });
+      orderBy.push({ createdAt: sortDir });
+    } else {
+      // For other fields, use the sortKey directly
+      orderBy.push({ [sortKey]: sortDir });
+      // Add isoDate as secondary sort for consistency
+      orderBy.push({ isoDate: 'asc' });
     }
 
     const [transactions, totalCount] = await Promise.all([
@@ -216,17 +223,28 @@ export class TransactionsService {
         where,
         skip,
         take: pageSize,
-        orderBy: Object.keys(orderBy).length > 0 ? orderBy : [{ isoDate: 'desc' }, { createdAt: 'desc' }],
+        orderBy,
       }),
       prisma.transaction.count({ where }),
     ]);
 
-    const totalIncoming = transactions.reduce((sum, tx) => sum + Number(tx.incoming), 0);
-    const totalOutgoing = transactions.reduce((sum, tx) => sum + Number(tx.outgoing), 0);
+    // Calculate totals from ALL matching transactions (not just current page)
+    const allTransactions = await prisma.transaction.findMany({
+      where,
+      select: {
+        incoming: true,
+        outgoing: true,
+      },
+    });
+
+    const totalIncoming = allTransactions.reduce((sum: number, tx) => sum + Number(tx.incoming), 0);
+    const totalOutgoing = allTransactions.reduce((sum: number, tx) => sum + Number(tx.outgoing), 0);
 
     return {
       items: transactions.map((tx) => this.mapToDto(tx)),
       totalCount,
+      totalIncoming,
+      totalOutgoing,
     };
   }
 
@@ -277,6 +295,7 @@ export class TransactionsService {
       bankId: transaction.bankId,
       creditCardId: transaction.creditCardId,
       chequeId: transaction.chequeId,
+      loanInstallmentId: transaction.loanInstallmentId,
       customerId: transaction.customerId,
       supplierId: transaction.supplierId,
       attachmentId: transaction.attachmentId,

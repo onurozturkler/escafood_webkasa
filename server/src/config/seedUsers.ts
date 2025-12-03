@@ -38,7 +38,7 @@ export async function seedUsers(prisma: PrismaClient): Promise<void> {
         id: 'user-onur',
         email: 'onur@esca-food.com',
         name: 'Onur Öztürkler',
-        passwordHash: '248624', // TODO: Hash password properly when auth is implemented
+        passwordHash: 'PLACEHOLDER-HASH-REQUIRED', // TODO: Hash password properly when auth is implemented
         isActive: true,
       },
     });
@@ -57,7 +57,7 @@ export async function seedUsers(prisma: PrismaClient): Promise<void> {
         id: 'user-hayrullah',
         email: 'hayrullah@esca-food.com',
         name: 'Hayrullah Öztürkler',
-        passwordHash: '397139', // TODO: Hash password properly when auth is implemented
+        passwordHash: 'PLACEHOLDER-HASH-REQUIRED', // TODO: Hash password properly when auth is implemented
         isActive: true,
       },
     });

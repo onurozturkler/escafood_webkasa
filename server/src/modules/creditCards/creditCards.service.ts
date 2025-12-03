@@ -1,5 +1,5 @@
 import { PrismaClient, DailyTransactionType, DailyTransactionSource } from '@prisma/client';
-import prisma from '../../config/prisma';
+import { prisma } from '../../config/prisma';
 import {
   CreateCreditCardDto,
   UpdateCreditCardDto,
@@ -82,7 +82,7 @@ export class CreditCardsService {
     });
 
     return cards.map((card) => {
-      const currentDebt = card.operations.reduce((sum, op) => sum + Number(op.amount), 0);
+      const currentDebt = card.operations.reduce((sum: number, op) => sum + Number(op.amount), 0);
       const lastOperationDate =
         card.operations.length > 0 ? card.operations[0].isoDate : null;
 
@@ -139,9 +139,14 @@ export class CreditCardsService {
       return null;
     }
 
-    const currentDebt = card.operations.reduce((sum, op) => sum + Number(op.amount), 0);
+    const currentDebt = card.operations.reduce((sum: number, op) => sum + Number(op.amount), 0);
     const lastOperationDate =
       card.operations.length > 0 ? card.operations[0].isoDate : null;
+
+    // deletedAt'ı açık açık Date | null olarak ele al
+    const deletedAtValue: Date | null = card.deletedAt
+      ? new Date(card.deletedAt as any)
+      : null;
 
     return {
       id: card.id,
@@ -153,9 +158,9 @@ export class CreditCardsService {
       isActive: card.isActive,
       createdAt: card.createdAt.toISOString(),
       createdBy: card.createdBy,
-      updatedAt: card.updatedAt?.toISOString() || null,
+      updatedAt: card.updatedAt ? card.updatedAt.toISOString() : null,
       updatedBy: card.updatedBy || null,
-      deletedAt: card.deletedAt?.toISOString() || null,
+      deletedAt: deletedAtValue ? deletedAtValue.toISOString() : null,
       deletedBy: card.deletedBy || null,
       currentDebt,
       lastOperationDate,
@@ -257,7 +262,7 @@ export class CreditCardsService {
       },
     });
 
-    const currentDebt = updated.operations.reduce((sum, op) => sum + Number(op.amount), 0);
+    const currentDebt = updated.operations.reduce((sum: number, op) => sum + Number(op.amount), 0);
     const lastOperationDate =
       updated.operations.length > 0 ? updated.operations[0].isoDate : null;
 

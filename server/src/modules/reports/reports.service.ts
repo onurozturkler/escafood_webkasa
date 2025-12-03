@@ -1,5 +1,5 @@
 import { PrismaClient, DailyTransactionType, DailyTransactionSource } from '@prisma/client';
-import prisma from '../../config/prisma';
+import { prisma } from '../../config/prisma';
 import {
   KasaDefteriQuery,
   KasaDefteriResponse,
@@ -12,19 +12,18 @@ export class ReportsService {
    * Get Kasa Defteri (Cash Book) report
    */
   async getKasaDefteri(query: KasaDefteriQuery): Promise<KasaDefteriResponse> {
+    // Default to today if no date range provided
+    const today = new Date().toISOString().slice(0, 10);
+    const fromDate = query.from || today;
+    const toDate = query.to || today;
+
     const where: any = {
       deletedAt: null,
+      isoDate: {
+        gte: fromDate,
+        lte: toDate,
+      },
     };
-
-    if (query.from || query.to) {
-      where.isoDate = {};
-      if (query.from) {
-        where.isoDate.gte = query.from;
-      }
-      if (query.to) {
-        where.isoDate.lte = query.to;
-      }
-    }
 
     if (query.documentNo) {
       where.documentNo = { contains: query.documentNo, mode: 'insensitive' };
@@ -47,37 +46,41 @@ export class ReportsService {
     }
 
     // Calculate opening balance (before from date)
-    let openingBalance = 0;
-    if (query.from) {
-      const beforeTransactions = await prisma.transaction.findMany({
-        where: {
-          deletedAt: null,
-          isoDate: { lt: query.from },
-        },
-        orderBy: [
-          { isoDate: 'asc' },
-          { createdAt: 'asc' },
-        ],
-      });
-      openingBalance = beforeTransactions.reduce(
-        (sum, tx) => sum + Number(tx.incoming) - Number(tx.outgoing),
-        0
-      );
-    }
+    // This is the cash balance BEFORE the start of the date range
+    const beforeTransactions = await prisma.transaction.findMany({
+      where: {
+        deletedAt: null,
+        isoDate: { lt: fromDate },
+      },
+      orderBy: [
+        { isoDate: 'asc' },
+        { createdAt: 'asc' },
+      ],
+    });
+    const openingBalance = beforeTransactions.reduce(
+      (sum: number, tx) => sum + Number(tx.incoming) - Number(tx.outgoing),
+      0
+    );
 
     const page = query.page || 1;
     const pageSize = query.pageSize || 50;
     const skip = (page - 1) * pageSize;
 
-    // Determine sort order
+    // Determine sort order - Prisma requires orderBy to be an array
     const sortKey = query.sortKey || 'isoDate';
     const sortDir = query.sortDir || 'asc';
-    const orderBy: any = {};
-    orderBy[sortKey] = sortDir;
-
-    // For date sorting, add createdAt as secondary sort
+    
+    // Build orderBy array based on sortKey
+    const orderBy: any[] = [];
     if (sortKey === 'isoDate') {
-      orderBy.createdAt = sortDir;
+      // For date sorting, use isoDate first, then createdAt as secondary sort
+      orderBy.push({ isoDate: sortDir });
+      orderBy.push({ createdAt: sortDir });
+    } else {
+      // For other fields, use the sortKey directly
+      orderBy.push({ [sortKey]: sortDir });
+      // Add isoDate as secondary sort for consistency
+      orderBy.push({ isoDate: 'asc' });
     }
 
     const [transactions, totalCount] = await Promise.all([
@@ -85,18 +88,35 @@ export class ReportsService {
         where,
         skip,
         take: pageSize,
-        orderBy: Object.keys(orderBy).length > 0 ? orderBy : [{ isoDate: 'asc' }, { createdAt: 'asc' }],
+        orderBy,
       }),
       prisma.transaction.count({ where }),
     ]);
 
-    const totalIncoming = transactions.reduce((sum, tx) => sum + Number(tx.incoming), 0);
-    const totalOutgoing = transactions.reduce((sum, tx) => sum + Number(tx.outgoing), 0);
+    // Calculate totals from ALL matching transactions (not just current page)
+    const allTransactions = await prisma.transaction.findMany({
+      where,
+      select: {
+        incoming: true,
+        outgoing: true,
+        balanceAfter: true,
+        isoDate: true,
+        createdAt: true,
+      },
+      orderBy: [
+        { isoDate: 'asc' },
+        { createdAt: 'asc' },
+      ],
+    });
 
-    // Closing balance is the last transaction's balanceAfter, or opening + net
+    const totalIncoming = allTransactions.reduce((sum: number, tx) => sum + Number(tx.incoming), 0);
+    const totalOutgoing = allTransactions.reduce((sum: number, tx) => sum + Number(tx.outgoing), 0);
+
+    // Closing balance: opening + net of all transactions in range
+    // OR the last transaction's balanceAfter if available
     const closingBalance =
-      transactions.length > 0
-        ? Number(transactions[transactions.length - 1].balanceAfter)
+      allTransactions.length > 0
+        ? Number(allTransactions[allTransactions.length - 1].balanceAfter)
         : openingBalance + totalIncoming - totalOutgoing;
 
     return {
@@ -122,21 +142,26 @@ export class ReportsService {
 
   /**
    * Get Nakit Akış (Cash Flow) report
+   * Defaults to current month if no date range provided
    */
   async getNakitAkis(query: NakitAkisQuery): Promise<NakitAkisResponse> {
+    // Default to current month if no date range provided
+    const today = new Date().toISOString().slice(0, 10);
+    const year = new Date().getUTCFullYear();
+    const month = new Date().getUTCMonth();
+    const firstOfMonth = new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10);
+    const lastOfMonth = new Date(Date.UTC(year, month + 1, 0)).toISOString().slice(0, 10);
+    
+    const fromDate = query.from || firstOfMonth;
+    const toDate = query.to || lastOfMonth;
+
     const where: any = {
       deletedAt: null,
+      isoDate: {
+        gte: fromDate,
+        lte: toDate,
+      },
     };
-
-    if (query.from || query.to) {
-      where.isoDate = {};
-      if (query.from) {
-        where.isoDate.gte = query.from;
-      }
-      if (query.to) {
-        where.isoDate.lte = query.to;
-      }
-    }
 
     if (query.user) {
       where.createdBy = query.user;
@@ -196,8 +221,8 @@ export class ReportsService {
       }
     }
 
-    const totalIn = girisler.reduce((sum, g) => sum + g.amount, 0);
-    const totalOut = cikislar.reduce((sum, c) => sum + c.amount, 0);
+    const totalIn = girisler.reduce((sum: number, g) => sum + g.amount, 0);
+    const totalOut = cikislar.reduce((sum: number, c) => sum + c.amount, 0);
     const net = totalIn - totalOut;
 
     return {
@@ -300,6 +325,10 @@ export class ReportsService {
           return Math.abs(Number(tx.bankDelta));
         }
         return 0;
+
+      case 'KREDI_TAKSIT_ODEME':
+        // Loan installment payment: bank outflow
+        return Number(tx.outgoing) || Math.abs(Number(tx.bankDelta)) || 0;
 
       case 'DEVIR_BAKIYE':
       case 'DUZELTME':

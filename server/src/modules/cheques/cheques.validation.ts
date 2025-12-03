@@ -50,3 +50,10 @@ export const chequeListQuerySchema = z.object({
   pageSize: z.coerce.number().int().positive().max(100).optional(),
 });
 
+// Alias for backward compatibility
+export const chequeQuerySchema = chequeListQuerySchema;
+
+export const chequeIdParamSchema = z.object({
+  id: z.string().uuid(),
+});
+

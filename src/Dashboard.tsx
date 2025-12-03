@@ -201,24 +201,23 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           });
         });
 
-      // Fetch loan installments from backend
+      // Fetch loan installments from backend (single call for all banks)
       try {
-        const allBanks = banks.map((b) => b.id).filter(Boolean);
-        const installmentsPromises = allBanks.map((bankId) =>
-          apiGet<Array<{
-            id: string;
-            loanId: string;
-            bankId: string;
-            installmentIndex: number;
-            dueDate: string;
-            amount: number;
-            loan: { id: string; name: string } | null;
-          }>>(`/api/loans/upcoming-installments?bankId=${bankId}`).catch(() => [])
-        );
-        const installmentsArrays = await Promise.all(installmentsPromises);
-        const allInstallments = installmentsArrays.flat();
+        const allBankIds = new Set(banks.map((b) => b.id).filter(Boolean));
+        const installments = await apiGet<Array<{
+          id: string;
+          loanId: string;
+          bankId: string;
+          installmentIndex: number;
+          dueDate: string;
+          amount: number;
+          loan: { id: string; name: string } | null;
+        }>>('/api/loans/upcoming-installments');
 
-        allInstallments.forEach((inst) => {
+        // Filter to only include installments for banks we know about
+        const validInstallments = installments.filter((inst) => allBankIds.has(inst.bankId));
+
+        validInstallments.forEach((inst) => {
           if (inst.loan) {
             payments.push({
               id: `installment-${inst.id}`,

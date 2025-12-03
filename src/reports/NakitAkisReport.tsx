@@ -8,6 +8,7 @@ import { BankMaster } from '../models/bank';
 import { isoToDisplay, todayIso } from '../utils/date';
 import { formatTl } from '../utils/money';
 import { HomepageIcon } from '../components/HomepageIcon';
+import { printReport } from '../utils/pdfExport';
 
 interface Props {
   transactions: DailyTransaction[];
@@ -34,9 +35,12 @@ export function NakitAkisReport({ transactions, banks, onBackToDashboard }: Prop
   const [userFilter, setUserFilter] = useState<string>('HEPSI');
   const [searchText, setSearchText] = useState('');
 
+  // Safeguard: ensure transactions is always an array
+  const safeTransactions = transactions ?? [];
+
   const distinctUsers = useMemo(() => {
-    return Array.from(new Set(transactions.map((t) => t.createdBy).filter(Boolean))) as string[];
-  }, [transactions]);
+    return Array.from(new Set(safeTransactions.map((t) => t.createdBy).filter(Boolean))) as string[];
+  }, [safeTransactions]);
 
   const resolveIncomingAmount = (tx: DailyTransaction) => {
     const bankDelta = tx.bankDelta || 0;
@@ -53,7 +57,7 @@ export function NakitAkisReport({ transactions, banks, onBackToDashboard }: Prop
 
   const filtered = useMemo(() => {
     const term = searchText.trim().toLowerCase();
-    return transactions.filter((tx) => {
+    return safeTransactions.filter((tx) => {
       if (!fromDate || !toDate) return false;
       if (tx.isoDate < fromDate || tx.isoDate > toDate) return false;
 
@@ -77,7 +81,7 @@ export function NakitAkisReport({ transactions, banks, onBackToDashboard }: Prop
       }
       return true;
     });
-  }, [fromDate, scope, searchText, toDate, transactions, userFilter]);
+  }, [fromDate, scope, searchText, toDate, safeTransactions, userFilter]);
 
   const totals = useMemo(() => {
     return filtered.reduce(
@@ -110,13 +114,19 @@ export function NakitAkisReport({ transactions, banks, onBackToDashboard }: Prop
       <div className="flex items-center justify-between gap-3 mb-2">
         <h1 className="text-lg md:text-xl font-semibold text-slate-800">Nakit Akış Raporu</h1>
         {onBackToDashboard && (
-          <div className="no-print">
+          <div className="no-print flex items-center gap-2">
             <button
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 text-sm"
               onClick={onBackToDashboard}
             >
               <HomepageIcon className="w-4 h-4" />
               <span>Ana Sayfaya Dön</span>
+            </button>
+            <button
+              className="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-medium"
+              onClick={() => printReport()}
+            >
+              📄 PDF / Döküm Al
             </button>
           </div>
         )}

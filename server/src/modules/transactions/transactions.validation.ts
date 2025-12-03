@@ -3,26 +3,41 @@ import { DailyTransactionType, DailyTransactionSource } from '@prisma/client';
 
 const isoDateRegex = /^\d{4}-\d{2}-\d{2}$/;
 
+// Helper to transform empty strings to undefined for create schema
+const optionalUuidStringCreate = z.preprocess(
+  (val) => (val === '' || val === undefined ? undefined : val),
+  z.string().uuid('Geçerli bir UUID formatı gerekir').nullable().optional()
+);
+
+const optionalStringCreate = z.preprocess(
+  (val) => (val === '' || val === undefined ? undefined : val),
+  z.string().max(500).nullable().optional()
+);
+
 export const createTransactionSchema = z
   .object({
     isoDate: z.string().regex(isoDateRegex, 'Geçerli bir tarih formatı gerekir (YYYY-MM-DD)'),
-    documentNo: z.string().nullable().optional(),
+    documentNo: optionalStringCreate,
     type: z.nativeEnum(DailyTransactionType),
     source: z.nativeEnum(DailyTransactionSource),
-    counterparty: z.string().max(200).nullable().optional(),
-    description: z.string().max(500).nullable().optional(),
+    counterparty: z.preprocess(
+      (val) => (val === '' || val === undefined ? undefined : val),
+      z.string().max(200).nullable().optional()
+    ),
+    description: optionalStringCreate,
     incoming: z.number().nonnegative().default(0),
     outgoing: z.number().nonnegative().default(0),
     bankDelta: z.number().default(0),
     displayIncoming: z.number().nonnegative().nullable().optional(),
     displayOutgoing: z.number().nonnegative().nullable().optional(),
-    cashAccountId: z.string().uuid().nullable().optional(),
-    bankId: z.string().uuid().nullable().optional(),
-    creditCardId: z.string().uuid().nullable().optional(),
-    chequeId: z.string().uuid().nullable().optional(),
-    customerId: z.string().uuid().nullable().optional(),
-    supplierId: z.string().uuid().nullable().optional(),
-    attachmentId: z.string().uuid().nullable().optional(),
+    cashAccountId: optionalUuidStringCreate,
+    bankId: optionalUuidStringCreate,
+    creditCardId: optionalUuidStringCreate,
+    chequeId: optionalUuidStringCreate,
+    loanInstallmentId: optionalUuidStringCreate,
+    customerId: optionalUuidStringCreate,
+    supplierId: optionalUuidStringCreate,
+    attachmentId: optionalUuidStringCreate,
   })
   .refine(
     (data) => {
@@ -102,21 +117,43 @@ export const updateTransactionSchema = z.object({
   attachmentId: z.string().uuid().nullable().optional(),
 });
 
+// Helper to transform empty strings to undefined and validate date format
+const optionalDateString = z.preprocess(
+  (val) => (val === '' || val === undefined ? undefined : val),
+  z.string().regex(isoDateRegex, 'Geçerli bir tarih formatı gerekir (YYYY-MM-DD)').optional()
+);
+
+// Helper to transform empty strings to undefined
+const optionalString = z.preprocess((val) => (val === '' || val === undefined ? undefined : val), z.string().optional());
+
+// Helper for optional UUID strings
+const optionalUuidString = z.preprocess(
+  (val) => (val === '' || val === undefined ? undefined : val),
+  z.string().uuid('Geçerli bir UUID formatı gerekir').optional()
+);
+
 export const transactionListQuerySchema = z.object({
-  from: z.string().regex(isoDateRegex).optional(),
-  to: z.string().regex(isoDateRegex).optional(),
-  documentNo: z.string().optional(),
+  from: optionalDateString,
+  to: optionalDateString,
+  documentNo: optionalString,
   type: z.nativeEnum(DailyTransactionType).optional(),
   source: z.nativeEnum(DailyTransactionSource).optional(),
-  counterparty: z.string().optional(),
-  description: z.string().optional(),
-  bankId: z.string().uuid().optional(),
-  creditCardId: z.string().uuid().optional(),
-  createdBy: z.string().uuid().optional(),
-  search: z.string().optional(),
+  counterparty: optionalString,
+  description: optionalString,
+  bankId: optionalUuidString,
+  creditCardId: optionalUuidString,
+  createdBy: optionalUuidString,
+  search: optionalString,
   sortKey: z.enum(['isoDate', 'documentNo', 'type', 'counterparty', 'incoming', 'outgoing', 'balanceAfter']).optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
   page: z.coerce.number().int().positive().optional(),
   pageSize: z.coerce.number().int().positive().max(100).optional(),
+});
+
+// Alias for backward compatibility
+export const transactionQuerySchema = transactionListQuerySchema;
+
+export const deleteTransactionSchema = z.object({
+  deletedBy: z.string().uuid(),
 });
 

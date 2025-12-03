@@ -6,6 +6,7 @@ import { BankMaster } from '../models/bank';
 import { diffInDays, isoToDisplay, todayIso } from '../utils/date';
 import { formatTl } from '../utils/money';
 import { HomepageIcon } from '../components/HomepageIcon';
+import { printReport } from '../utils/pdfExport';
 
 export interface CekSenetReportProps {
   cheques: Cheque[];
@@ -29,6 +30,11 @@ const statusLabels: Record<ChequeStatus, string> = {
 const allStatuses: ChequeStatus[] = ['KASADA', 'BANKADA_TAHSILDE', 'ODEMEDE', 'TAHSIL_EDILDI', 'KARSILIKSIZ'];
 
 function isOurCheque(cek: Cheque): boolean {
+  // Use direction if available (preferred method)
+  if (cek.direction === 'BORC') return true;
+  if (cek.direction === 'ALACAK') return false;
+  
+  // Fallback to legacy logic if direction not available
   if (typeof (cek as any).bizimCekimizMi === 'boolean') {
     return (cek as any).bizimCekimizMi;
   }
@@ -146,13 +152,19 @@ export function CekSenetReport({ cheques, customers, suppliers, banks, onBackToD
       <div className="flex items-center justify-between gap-3 mb-2">
         <h1 className="text-lg md:text-xl font-semibold text-slate-800">Çek/Senet Modülü</h1>
         {onBackToDashboard && (
-          <div className="no-print">
+          <div className="no-print flex items-center gap-2">
             <button
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 text-sm"
               onClick={onBackToDashboard}
             >
               <HomepageIcon className="w-4 h-4" />
               <span>Ana Sayfaya Dön</span>
+            </button>
+            <button
+              className="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-medium"
+              onClick={() => printReport()}
+            >
+              📄 PDF / Döküm Al
             </button>
           </div>
         )}

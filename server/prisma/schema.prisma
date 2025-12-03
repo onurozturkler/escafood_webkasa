@@ -24,6 +24,7 @@ enum DailyTransactionType {
   CEK_KARSILIKSIZ
   DEVIR_BAKIYE
   DUZELTME
+  KREDI_TAKSIT_ODEME
 }
 
 enum DailyTransactionSource {
@@ -86,6 +87,14 @@ model User {
   chequesUpdated Cheque[] @relation("ChequeUpdatedBy")
   chequesDeleted Cheque[] @relation("ChequeDeletedBy")
 
+  loansCreated Loan[] @relation("LoanCreatedBy")
+  loansUpdated Loan[] @relation("LoanUpdatedBy")
+  loansDeleted Loan[] @relation("LoanDeletedBy")
+
+  loanInstallmentsCreated LoanInstallment[] @relation("LoanInstallmentCreatedBy")
+  loanInstallmentsUpdated LoanInstallment[] @relation("LoanInstallmentUpdatedBy")
+  loanInstallmentsDeleted LoanInstallment[] @relation("LoanInstallmentDeletedBy")
+
   customersCreated Customer[] @relation("CustomerCreatedBy")
   customersUpdated Customer[] @relation("CustomerUpdatedBy")
   customersDeleted Customer[] @relation("CustomerDeletedBy")
@@ -112,9 +121,11 @@ model Bank {
   deletedAt DateTime?
   deletedBy String?
 
-  transactions Transaction[]
-  creditCards  CreditCard[]
-  cheques      Cheque[]
+  transactions     Transaction[]
+  creditCards      CreditCard[]
+  cheques          Cheque[]
+  loans            Loan[]
+  loanInstallments LoanInstallment[]
 
   createdByUser User  @relation("BankCreatedBy", fields: [createdBy], references: [id])
   updatedByUser User? @relation("BankUpdatedBy", fields: [updatedBy], references: [id])
@@ -122,21 +133,21 @@ model Bank {
 }
 
 model CreditCard {
-  id        String    @id @default(uuid())
-  name      String
-  bankId    String?
-  limit     Decimal?  @db.Decimal(18, 2)
+  id         String    @id @default(uuid())
+  name       String
+  bankId     String?
+  limit      Decimal?  @db.Decimal(18, 2)
   closingDay Int?
   dueDay     Int?
-  isActive  Boolean   @default(true)
-  createdAt DateTime  @default(now())
-  createdBy String
-  updatedAt DateTime?
-  updatedBy String?
-  deletedAt DateTime?
-  deletedBy String?
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  createdBy  String
+  updatedAt  DateTime?
+  updatedBy  String?
+  deletedAt  DateTime?
+  deletedBy  String?
 
-  bank         Bank?        @relation(fields: [bankId], references: [id])
+  bank         Bank?                 @relation(fields: [bankId], references: [id])
   operations   CreditCardOperation[]
   transactions Transaction[]
 
@@ -169,9 +180,9 @@ model CreditCardOperation {
 }
 
 model Cheque {
-  id           String         @id @default(uuid())
+  id           String          @id @default(uuid())
   cekNo        String
-  amount       Decimal        @db.Decimal(18, 2)
+  amount       Decimal         @db.Decimal(18, 2)
   entryDate    String
   maturityDate String
   status       ChequeStatus
@@ -181,17 +192,17 @@ model Cheque {
   bankId       String?
   description  String?
   attachmentId String?
-  createdAt    DateTime       @default(now())
+  createdAt    DateTime        @default(now())
   createdBy    String
   updatedAt    DateTime?
   updatedBy    String?
   deletedAt    DateTime?
   deletedBy    String?
 
-  bank         Bank?        @relation(fields: [bankId], references: [id])
-  customer     Customer?    @relation(fields: [customerId], references: [id])
-  supplier     Supplier?    @relation(fields: [supplierId], references: [id])
-  attachment   Attachment?  @relation(fields: [attachmentId], references: [id])
+  bank         Bank?         @relation(fields: [bankId], references: [id])
+  customer     Customer?     @relation(fields: [customerId], references: [id])
+  supplier     Supplier?     @relation(fields: [supplierId], references: [id])
+  attachment   Attachment?   @relation(fields: [attachmentId], references: [id])
   transactions Transaction[]
 
   createdByUser User  @relation("ChequeCreatedBy", fields: [createdBy], references: [id])
@@ -200,14 +211,14 @@ model Cheque {
 }
 
 model Customer {
-  id        String     @id @default(uuid())
+  id        String    @id @default(uuid())
   name      String
   phone     String?
   email     String?
   taxNo     String?
   address   String?
-  isActive  Boolean    @default(true)
-  createdAt DateTime   @default(now())
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
   createdBy String
   updatedAt DateTime?
   updatedBy String?
@@ -223,14 +234,14 @@ model Customer {
 }
 
 model Supplier {
-  id        String     @id @default(uuid())
+  id        String    @id @default(uuid())
   name      String
   phone     String?
   email     String?
   taxNo     String?
   address   String?
-  isActive  Boolean    @default(true)
-  createdAt DateTime   @default(now())
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
   createdBy String
   updatedAt DateTime?
   updatedBy String?
@@ -245,12 +256,74 @@ model Supplier {
   deletedByUser User? @relation("SupplierDeletedBy", fields: [deletedBy], references: [id])
 }
 
+enum LoanInstallmentStatus {
+  PENDING
+  PAID
+  OVERDUE
+}
+
+model Loan {
+  id                   String    @id @default(uuid())
+  name                 String
+  bankId               String
+  totalAmount          Decimal   @db.Decimal(18, 2)
+  installmentCount     Int
+  firstInstallmentDate String
+  interestRate         Decimal   @db.Decimal(18, 4)
+  bsmvRate             Decimal   @db.Decimal(18, 4)
+  isActive             Boolean   @default(true)
+  createdAt            DateTime  @default(now())
+  createdBy            String
+  updatedAt            DateTime?
+  updatedBy            String?
+  deletedAt            DateTime?
+  deletedBy            String?
+
+  bank         Bank              @relation(fields: [bankId], references: [id])
+  installments LoanInstallment[]
+
+  createdByUser User  @relation("LoanCreatedBy", fields: [createdBy], references: [id])
+  updatedByUser User? @relation("LoanUpdatedBy", fields: [updatedBy], references: [id])
+  deletedByUser User? @relation("LoanDeletedBy", fields: [deletedBy], references: [id])
+
+  @@map("loans")
+}
+
+model LoanInstallment {
+  id               String                @id @default(uuid())
+  loanId           String
+  bankId           String
+  installmentIndex Int
+  dueDate          String
+  amount           Decimal               @db.Decimal(18, 2)
+  principal        Decimal               @db.Decimal(18, 2)
+  interest         Decimal               @db.Decimal(18, 2)
+  status           LoanInstallmentStatus @default(PENDING)
+  paidDate         String?
+  createdAt        DateTime              @default(now())
+  createdBy        String
+  updatedAt        DateTime?
+  updatedBy        String?
+  deletedAt        DateTime?
+  deletedBy        String?
+
+  loan         Loan          @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  bank         Bank          @relation(fields: [bankId], references: [id])
+  transactions Transaction[]
+
+  createdByUser User  @relation("LoanInstallmentCreatedBy", fields: [createdBy], references: [id])
+  updatedByUser User? @relation("LoanInstallmentUpdatedBy", fields: [updatedBy], references: [id])
+  deletedByUser User? @relation("LoanInstallmentDeletedBy", fields: [deletedBy], references: [id])
+
+  @@map("loan_installments")
+}
+
 model Attachment {
-  id         String     @id @default(uuid())
+  id         String    @id @default(uuid())
   fileName   String
   mimeType   String
   base64Data String
-  createdAt  DateTime   @default(now())
+  createdAt  DateTime  @default(now())
   createdBy  String?
   updatedAt  DateTime?
   updatedBy  String?
@@ -266,39 +339,41 @@ model Attachment {
 }
 
 model Transaction {
-  id              String                   @id @default(uuid())
-  isoDate         String
-  documentNo      String?
-  type            DailyTransactionType
-  source          DailyTransactionSource
-  counterparty    String?
-  description     String?
-  incoming        Decimal                  @db.Decimal(18, 2) @default(0)
-  outgoing        Decimal                  @db.Decimal(18, 2) @default(0)
-  bankDelta       Decimal                  @db.Decimal(18, 2) @default(0)
-  displayIncoming Decimal?                 @db.Decimal(18, 2)
-  displayOutgoing Decimal?                 @db.Decimal(18, 2)
-  balanceAfter    Decimal                  @db.Decimal(18, 2)
-  cashAccountId   String?
-  bankId          String?
-  creditCardId    String?
-  chequeId        String?
-  customerId      String?
-  supplierId      String?
-  attachmentId    String?
-  createdAt       DateTime                 @default(now())
-  createdBy       String
-  updatedAt       DateTime?
-  updatedBy       String?
-  deletedAt       DateTime?
-  deletedBy       String?
+  id                String                 @id @default(uuid())
+  isoDate           String
+  documentNo        String?
+  type              DailyTransactionType
+  source            DailyTransactionSource
+  counterparty      String?
+  description       String?
+  incoming          Decimal                @default(0) @db.Decimal(18, 2)
+  outgoing          Decimal                @default(0) @db.Decimal(18, 2)
+  bankDelta         Decimal                @default(0) @db.Decimal(18, 2)
+  displayIncoming   Decimal?               @db.Decimal(18, 2)
+  displayOutgoing   Decimal?               @db.Decimal(18, 2)
+  balanceAfter      Decimal                @db.Decimal(18, 2)
+  cashAccountId     String?
+  bankId            String?
+  creditCardId      String?
+  chequeId          String?
+  loanInstallmentId String?
+  customerId        String?
+  supplierId        String?
+  attachmentId      String?
+  createdAt         DateTime               @default(now())
+  createdBy         String
+  updatedAt         DateTime?
+  updatedBy         String?
+  deletedAt         DateTime?
+  deletedBy         String?
 
-  bank       Bank?       @relation(fields: [bankId], references: [id])
-  creditCard CreditCard? @relation(fields: [creditCardId], references: [id])
-  cheque     Cheque?     @relation(fields: [chequeId], references: [id])
-  customer   Customer?   @relation(fields: [customerId], references: [id])
-  supplier   Supplier?   @relation(fields: [supplierId], references: [id])
-  attachment Attachment? @relation(fields: [attachmentId], references: [id])
+  bank            Bank?            @relation(fields: [bankId], references: [id])
+  creditCard      CreditCard?      @relation(fields: [creditCardId], references: [id])
+  cheque          Cheque?          @relation(fields: [chequeId], references: [id])
+  loanInstallment LoanInstallment? @relation(fields: [loanInstallmentId], references: [id])
+  customer        Customer?        @relation(fields: [customerId], references: [id])
+  supplier        Supplier?        @relation(fields: [supplierId], references: [id])
+  attachment      Attachment?      @relation(fields: [attachmentId], references: [id])
 
   createdByUser User  @relation("TransactionCreatedBy", fields: [createdBy], references: [id])
   updatedByUser User? @relation("TransactionUpdatedBy", fields: [updatedBy], references: [id])

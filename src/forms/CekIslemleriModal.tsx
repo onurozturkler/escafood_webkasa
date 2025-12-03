@@ -287,7 +287,8 @@ export default function CekIslemleriModal({
   };
 
   const handleSaveGiris = async () => {
-    if (!girisCustomerId || !girisCekNo || !girisBankaAdi || !girisTutar || girisTutar <= 0 || !girisVadeTarihi) return;
+    // customerId is optional - cheque can work with just free-text counterparty name
+    if (!girisCekNo || !girisBankaAdi || !girisTutar || girisTutar <= 0 || !girisVadeTarihi) return;
     if (!girisChequeDataUrl) {
       alert('Çek görseli eklenmeden bu işlem kaydedilemez.');
       return;
@@ -314,7 +315,7 @@ export default function CekIslemleriModal({
         entryDate: todayIso(), // Using today as entry date
         maturityDate: girisVadeTarihi,
         direction: 'ALACAK',
-        customerId: girisCustomerId,
+        customerId: girisCustomerId && girisCustomerId.trim() ? girisCustomerId : null,
         supplierId: null,
         bankId: null, // Frontend doesn't have bankId for giris, only bankaAdi
         description: girisAciklama || null,
@@ -331,6 +332,7 @@ export default function CekIslemleriModal({
         duzenleyen: girisDuzenleyen || customers.find((c) => c.id === girisCustomerId)?.ad || '',
         lehtar: girisLehtar || 'Esca Food AŞ',
         musteriId: response.customerId || undefined,
+        direction: 'ALACAK', // Customer cheque
         status: mapToFrontendStatus(response.status as any, 'ALACAK'),
         kasaMi: response.status === 'KASADA',
         aciklama: response.description || undefined,
@@ -409,6 +411,7 @@ export default function CekIslemleriModal({
       // Map backend response to frontend format
       const updatedCheque: Cheque = {
         ...selectedCheque,
+        direction: (response.cheque as any).direction || selectedCheque.direction, // Preserve direction
         status: mapToFrontendStatus(response.cheque.status as any, response.cheque.direction),
         kasaMi: response.cheque.status === 'KASADA',
         bankaId: response.cheque.bankId || undefined,
@@ -426,8 +429,8 @@ export default function CekIslemleriModal({
 
   const handleSaveYeni = async () => {
     const bank = banks.find((b) => b.id === yeniBankId && b.cekKarnesiVarMi);
-    const supplier = suppliers.find((s) => s.id === yeniSupplierId);
-    if (!bank || !supplier || !yeniCekNo || !yeniTutar || yeniTutar <= 0 || !yeniVadeTarihi) return;
+    // supplierId is optional - cheque can work with just free-text counterparty name
+    if (!bank || !yeniCekNo || !yeniTutar || yeniTutar <= 0 || !yeniVadeTarihi) return;
     if (!yeniChequeDataUrl) {
       alert('Çek görseli eklenmeden bu işlem kaydedilemez.');
       return;
@@ -454,7 +457,7 @@ export default function CekIslemleriModal({
         maturityDate: yeniVadeTarihi,
         direction: 'BORC',
         customerId: null,
-        supplierId: yeniSupplierId,
+        supplierId: yeniSupplierId && yeniSupplierId.trim() ? yeniSupplierId : null,
         bankId: yeniBankId,
         description: yeniAciklama || null,
         attachmentId: null, // TODO: Upload and get attachmentId
@@ -471,6 +474,7 @@ export default function CekIslemleriModal({
         duzenleyen: yeniDuzenleyen,
         lehtar: yeniLehtar || supplier.ad,
         tedarikciId: response.supplierId || undefined,
+        direction: 'BORC', // Our issued cheque
         status: mapToFrontendStatus(response.status as any, 'BORC'),
         kasaMi: false,
         aciklama: response.description || undefined,
@@ -517,7 +521,7 @@ export default function CekIslemleriModal({
         {activeTab === 'GIRIS' && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <FormRow label="Müşteri" required>
+              <FormRow label="Müşteri">
                 <SearchableSelect
                   valueId={girisCustomerId || null}
                   onChange={(id) => {
@@ -695,7 +699,7 @@ export default function CekIslemleriModal({
                 </FormRow>
               )}
               {cikisReason === 'TEDARIKCI_VERILDI' && (
-                <FormRow label="Tedarikçi" required>
+                <FormRow label="Tedarikçi">
                   <SearchableSelect
                     valueId={cikisSupplierId || null}
                     onChange={(id) => {
@@ -733,7 +737,7 @@ export default function CekIslemleriModal({
         {activeTab === 'YENI' && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <FormRow label="Tedarikçi" required>
+              <FormRow label="Tedarikçi">
                 <SearchableSelect
                   valueId={yeniSupplierId || null}
                   onChange={(id) => {

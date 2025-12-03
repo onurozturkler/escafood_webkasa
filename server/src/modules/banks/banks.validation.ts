@@ -10,20 +10,13 @@ const baseBankSchema = z
   })
   .strict();
 
-export const createBankSchema = baseBankSchema.extend({
-  createdBy: z.string().trim(),
-});
+export const createBankSchema = baseBankSchema;
 
 export const updateBankSchema = baseBankSchema.partial().extend({
   isActive: z.boolean().optional(),
-  updatedBy: z.string().trim(),
 });
 
-export const deleteBankSchema = z
-  .object({
-    deletedBy: z.string().trim(),
-  })
-  .strict();
+export const deleteBankSchema = z.object({}).strict();
 
 export const bankIdParamSchema = z.object({
   id: uuidSchema,

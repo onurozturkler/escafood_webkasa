@@ -34,7 +34,7 @@ export const createPaymentSchema = z.object({
   amount: z.number().positive('Tutar pozitif olmalıdır'),
   description: z.string().max(500).nullable().optional(),
   paymentSource: z.enum(['BANKA', 'KASA'], {
-    errorMap: () => ({ message: 'Ödeme kaynağı BANKA veya KASA olmalıdır' }),
+    message: 'Ödeme kaynağı BANKA veya KASA olmalıdır',
   }),
   bankId: z.string().uuid().nullable().optional(),
 }).refine(

@@ -8,6 +8,7 @@ import { isoToDisplay } from '../utils/date';
 import { formatTl } from '../utils/money';
 import { HomepageIcon } from '../components/HomepageIcon';
 import { apiGet } from '../utils/api';
+import { printReport } from '../utils/pdfExport';
 
 interface KasaDefteriViewProps {
   onBackToDashboard: () => void;
@@ -250,8 +251,11 @@ export default function KasaDefteriView({ onBackToDashboard }: KasaDefteriViewPr
               <HomepageIcon className="w-4 h-4" />
               <span>Ana Sayfaya Dön</span>
             </button>
-            <button className="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700" onClick={() => window.print()}>
-              PDF'e Aktar / Yazdır
+            <button
+              className="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-medium"
+              onClick={() => printReport()}
+            >
+              📄 PDF / Döküm Al
             </button>
           </div>
         </div>

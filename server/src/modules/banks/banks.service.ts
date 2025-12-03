@@ -17,12 +17,15 @@ export class BanksService {
             not: null,
           },
         },
+        orderBy: {
+          bankId: 'asc',
+        },
       }),
     ]);
 
     const balanceMap = new Map<string, number>();
     for (const group of balanceGroups) {
-      if (group.bankId) {
+      if (group.bankId && group._sum) {
         balanceMap.set(group.bankId, Number(group._sum.bankDelta ?? 0));
       }
     }
@@ -33,20 +36,20 @@ export class BanksService {
     }));
   }
 
-  async createBank(payload: CreateBankDTO): Promise<BankRecord> {
+  async createBank(payload: CreateBankDTO, createdBy: string): Promise<BankRecord> {
     const created = await prisma.bank.create({
       data: {
         name: payload.name,
         accountNo: payload.accountNo ?? null,
         iban: payload.iban ?? null,
-        createdBy: payload.createdBy,
+        createdBy,
       },
     });
 
     return created;
   }
 
-  async updateBank(id: string, payload: UpdateBankDTO): Promise<BankRecord> {
+  async updateBank(id: string, payload: UpdateBankDTO, updatedBy: string): Promise<BankRecord> {
     const existing = await prisma.bank.findUnique({ where: { id } });
     if (!existing || existing.deletedAt) {
       throw new Error('Bank not found.');
@@ -54,7 +57,7 @@ export class BanksService {
 
     const data: Record<string, unknown> = {
       updatedAt: new Date(),
-      updatedBy: payload.updatedBy,
+      updatedBy,
     };
 
     if (payload.name !== undefined) {
@@ -81,7 +84,7 @@ export class BanksService {
     return updated;
   }
 
-  async softDeleteBank(id: string, payload: DeleteBankDTO): Promise<BankRecord> {
+  async softDeleteBank(id: string, deletedBy: string): Promise<BankRecord> {
     const existing = await prisma.bank.findUnique({ where: { id } });
     if (!existing || existing.deletedAt) {
       throw new Error('Bank not found.');
@@ -92,7 +95,7 @@ export class BanksService {
       data: {
         isActive: false,
         deletedAt: new Date(),
-        deletedBy: payload.deletedBy,
+        deletedBy,
       },
     });
 
