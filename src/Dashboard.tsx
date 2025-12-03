@@ -330,6 +330,20 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
       const type: DailyTransactionType =
         values.islemTuru === 'CEK_TAHSILATI' ? 'CEK_TAHSIL_BANKA' : 'BANKA_HAVALE_GIRIS';
 
+      // Validate bankId is a valid UUID string
+      if (!values.bankaId || !values.bankaId.trim()) {
+        alert('Banka seçmelisiniz.');
+        return;
+      }
+
+      // Ensure bankId is a valid UUID format
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const normalizedBankId = values.bankaId.trim();
+      if (!uuidRegex.test(normalizedBankId)) {
+        alert('Geçersiz banka ID formatı.');
+        return;
+      }
+
       // Backend'e kaydet
       const response = await apiPost<{
         id: string;
@@ -356,7 +370,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         incoming: 0,
         outgoing: 0,
         bankDelta: values.tutar,
-        bankId: values.bankaId,
+        bankId: normalizedBankId,
       });
 
       // Backend'den gelen transaction'ı frontend formatına çevir
@@ -391,7 +405,26 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
 
   const handleBankaNakitCikisSaved = async (values: BankaNakitCikisFormValues) => {
     try {
+      // Validate bankId is a valid UUID string
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      
+      if (!values.bankaId || !values.bankaId.trim()) {
+        alert('Banka seçmelisiniz.');
+        return;
+      }
+      const normalizedBankId = values.bankaId.trim();
+      if (!uuidRegex.test(normalizedBankId)) {
+        alert('Geçersiz banka ID formatı.');
+        return;
+      }
+
       if (values.islemTuru === 'VIRMAN' && values.hedefBankaId) {
+        if (!values.hedefBankaId.trim() || !uuidRegex.test(values.hedefBankaId.trim())) {
+          alert('Geçersiz hedef banka ID formatı.');
+          return;
+        }
+        const normalizedHedefBankId = values.hedefBankaId.trim();
+
         const documentNoCks = getNextBelgeNo('BNK-CKS', values.islemTarihiIso, dailyTransactions);
         const documentNoGrs = getNextBelgeNo('BNK-GRS', values.islemTarihiIso, [
           ...dailyTransactions,
@@ -424,7 +457,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           incoming: 0,
           outgoing: 0,
           bankDelta: -values.tutar,
-          bankId: values.bankaId,
+          bankId: normalizedBankId,
         });
 
         // Backend'e kaydet - giriş transaction'ı
@@ -453,7 +486,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           incoming: 0,
           outgoing: 0,
           bankDelta: values.tutar,
-          bankId: values.hedefBankaId,
+          bankId: normalizedHedefBankId,
         });
 
         // Backend'den gelen transaction'ları frontend formatına çevir
@@ -605,7 +638,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           incoming: 0,
           outgoing: 0,
           bankDelta: -tutar,
-          bankId: values.bankaId,
+          bankId: normalizedBankId,
         });
 
         // Backend'den gelen transaction'ı frontend formatına çevir

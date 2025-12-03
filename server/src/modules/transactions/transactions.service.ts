@@ -53,32 +53,93 @@ export class TransactionsService {
     const outgoing = data.outgoing || 0;
     const balanceAfter = await calculateBalanceAfter(data.isoDate, incoming, outgoing);
 
-    const transaction = await prisma.transaction.create({
-      data: {
-        isoDate: data.isoDate,
-        documentNo: data.documentNo || null,
-        type: data.type,
-        source: data.source,
-        counterparty: data.counterparty || null,
-        description: data.description || null,
-        incoming: incoming,
-        outgoing: outgoing,
-        bankDelta: data.bankDelta || 0,
-        displayIncoming: data.displayIncoming || null,
-        displayOutgoing: data.displayOutgoing || null,
-        balanceAfter: balanceAfter,
-        cashAccountId: data.cashAccountId || null,
-        bankId: data.bankId || null,
-        creditCardId: data.creditCardId || null,
-        chequeId: data.chequeId || null,
-        customerId: data.customerId || null,
-        supplierId: data.supplierId || null,
-        attachmentId: data.attachmentId || null,
-        createdBy,
-      },
+    // Normalize bankId: ensure it's a valid UUID string or null
+    // Never send empty string, undefined, 0, or invalid values to Prisma
+    let normalizedBankId: string | null = null;
+    if (data.bankId) {
+      if (typeof data.bankId === 'string' && data.bankId.trim()) {
+        const trimmed = data.bankId.trim();
+        // Validate UUID format
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (uuidRegex.test(trimmed)) {
+          normalizedBankId = trimmed;
+        }
+      }
+    }
+
+    // Normalize creditCardId similarly
+    let normalizedCreditCardId: string | null = null;
+    if (data.creditCardId) {
+      if (typeof data.creditCardId === 'string' && data.creditCardId.trim()) {
+        const trimmed = data.creditCardId.trim();
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (uuidRegex.test(trimmed)) {
+          normalizedCreditCardId = trimmed;
+        }
+      }
+    }
+
+    // If bankId is provided, verify the bank exists
+    if (normalizedBankId) {
+      const bank = await prisma.bank.findUnique({
+        where: { id: normalizedBankId },
+        select: { id: true, deletedAt: true },
+      });
+      if (!bank || bank.deletedAt) {
+        throw new Error(`Bank with ID ${normalizedBankId} not found or has been deleted`);
+      }
+    }
+
+    // Log for debugging
+    console.log('CREATE TRANSACTION DATA >>>', {
+      type: data.type,
+      source: data.source,
+      bankId: data.bankId,
+      normalizedBankId,
+      creditCardId: data.creditCardId,
+      normalizedCreditCardId,
+      incoming,
+      outgoing,
+      bankDelta: data.bankDelta || 0,
     });
 
-    return this.mapToDto(transaction);
+    try {
+      const transaction = await prisma.transaction.create({
+        data: {
+          isoDate: data.isoDate,
+          documentNo: data.documentNo || null,
+          type: data.type,
+          source: data.source,
+          counterparty: data.counterparty || null,
+          description: data.description || null,
+          incoming: incoming,
+          outgoing: outgoing,
+          bankDelta: data.bankDelta || 0,
+          displayIncoming: data.displayIncoming || null,
+          displayOutgoing: data.displayOutgoing || null,
+          balanceAfter: balanceAfter,
+          cashAccountId: data.cashAccountId || null,
+          bankId: normalizedBankId,
+          creditCardId: normalizedCreditCardId,
+          chequeId: data.chequeId || null,
+          customerId: data.customerId || null,
+          supplierId: data.supplierId || null,
+          attachmentId: data.attachmentId || null,
+          createdBy,
+        },
+      });
+
+      return this.mapToDto(transaction);
+    } catch (error: any) {
+      // Handle Prisma foreign key constraint errors
+      if (error?.code === 'P2003') {
+        const field = error.meta?.field_name || 'foreign key';
+        console.error('Foreign key constraint violation:', field, error.meta);
+        throw new Error(`Invalid ${field}: The referenced record does not exist`);
+      }
+      // Re-throw other errors
+      throw error;
+    }
   }
 
   /**
