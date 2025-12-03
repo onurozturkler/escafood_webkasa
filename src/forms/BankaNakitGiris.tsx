@@ -31,7 +31,7 @@ export interface BankaNakitGirisFormValues {
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  onSaved: (values: BankaNakitGirisFormValues) => void;
+  onSaved: (values: BankaNakitGirisFormValues) => void | Promise<void>;
   currentUserEmail: string;
   banks: BankMaster[];
   customers: Customer[];
