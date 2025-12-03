@@ -7,7 +7,6 @@ import { PosTerminal } from '../models/pos';
 import { Customer } from '../models/customer';
 import { Supplier } from '../models/supplier';
 import { CreditCard } from '../models/card';
-import { Loan } from '../models/loan';
 import { GlobalSettings } from '../models/settings';
 import { generateId } from '../utils/id';
 
@@ -17,7 +16,6 @@ export type SettingsTabKey =
   | 'MUSTERI'
   | 'TEDARIKCI'
   | 'KARTLAR'
-  | 'KREDILER'
   | 'GLOBAL';
 
 interface Props {
@@ -35,8 +33,6 @@ interface Props {
   setSuppliers: (suppliers: Supplier[]) => void;
   creditCards: CreditCard[];
   setCreditCards: (cards: CreditCard[]) => void;
-  loans: Loan[];
-  setLoans: (loans: Loan[]) => void;
   globalSettings: GlobalSettings;
   setGlobalSettings: (gs: GlobalSettings) => void;
 }
@@ -47,7 +43,6 @@ const tabs: { key: SettingsTabKey; label: string }[] = [
   { key: 'MUSTERI', label: 'Müşteriler' },
   { key: 'TEDARIKCI', label: 'Tedarikçiler' },
   { key: 'KARTLAR', label: 'Kredi Kartları' },
-  { key: 'KREDILER', label: 'Krediler' },
   { key: 'GLOBAL', label: 'Global Ayarlar' },
 ];
 
@@ -85,8 +80,6 @@ export default function AyarlarModal(props: Props) {
     setSuppliers,
     creditCards,
     setCreditCards,
-    loans,
-    setLoans,
     globalSettings,
     setGlobalSettings,
   } = props;
@@ -145,9 +138,6 @@ export default function AyarlarModal(props: Props) {
             setCreditCards={setCreditCards}
             onDirty={() => setDirty(true)}
           />
-        )}
-        {activeTab === 'KREDILER' && (
-          <LoanTab banks={banks} loans={loans} setLoans={setLoans} onDirty={() => setDirty(true)} />
         )}
         {activeTab === 'GLOBAL' && (
           <GlobalTab

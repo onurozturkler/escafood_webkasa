@@ -34,7 +34,6 @@ export const createTransactionSchema = z
     bankId: optionalUuidStringCreate,
     creditCardId: optionalUuidStringCreate,
     chequeId: optionalUuidStringCreate,
-    loanInstallmentId: optionalUuidStringCreate,
     customerId: optionalUuidStringCreate,
     supplierId: optionalUuidStringCreate,
     attachmentId: optionalUuidStringCreate,

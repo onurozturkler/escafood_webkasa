@@ -16,6 +16,7 @@ export interface CreditCardDto {
   deletedBy: string | null;
   // Computed fields
   currentDebt: number;
+  availableLimit: number | null;
   lastOperationDate: string | null;
   // Relations (optional, populated when needed)
   bank?: {

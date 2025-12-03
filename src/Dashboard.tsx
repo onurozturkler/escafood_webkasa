@@ -5,7 +5,6 @@ import { PosTerminal } from './models/pos';
 import { Customer } from './models/customer';
 import { Supplier } from './models/supplier';
 import { CreditCard } from './models/card';
-import { Loan } from './models/loan';
 import { GlobalSettings } from './models/settings';
 import { Cheque } from './models/cheque';
 import { DailyTransaction, DailyTransactionSource, DailyTransactionType } from './models/transaction';
@@ -14,7 +13,6 @@ import { isoToDisplay, todayIso, getWeekdayTr, diffInDays } from './utils/date';
 import { formatTl } from './utils/money';
 import { getNextBelgeNo } from './utils/documentNo';
 import { generateId } from './utils/id';
-import { buildLoanSchedule } from './utils/loan';
 import { getCreditCardNextDue } from './utils/creditCard';
 import { apiGet, apiPost } from './utils/api';
 import NakitGiris, { NakitGirisFormValues } from './forms/NakitGiris';
@@ -131,7 +129,6 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [creditCards, setCreditCards] = useState<CreditCard[]>([]);
-  const [loans, setLoans] = useState<Loan[]>([]);
   const [globalSettings, setGlobalSettings] = useState<GlobalSettings>({
     varsayilanAsgariOdemeOrani: 0.4,
     varsayilanBsmvOrani: 0.05,
@@ -201,59 +198,6 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           });
         });
 
-      // Fetch loan installments from backend (single call for all banks)
-      try {
-        const allBankIds = new Set(banks.map((b) => b.id).filter(Boolean));
-        const installments = await apiGet<Array<{
-          id: string;
-          loanId: string;
-          bankId: string;
-          installmentIndex: number;
-          dueDate: string;
-          amount: number;
-          loan: { id: string; name: string } | null;
-        }>>('/api/loans/upcoming-installments');
-
-        // Filter to only include installments for banks we know about
-        const validInstallments = installments.filter((inst) => allBankIds.has(inst.bankId));
-
-        validInstallments.forEach((inst) => {
-          if (inst.loan) {
-            payments.push({
-              id: `installment-${inst.id}`,
-              category: 'KREDI',
-              bankName: banks.find((b) => b.id === inst.bankId)?.bankaAdi || '-',
-              name: `${inst.loan.name} - ${inst.installmentIndex}. taksit`,
-              dueDateIso: inst.dueDate,
-              dueDateDisplay: isoToDisplay(inst.dueDate),
-              amount: inst.amount,
-              daysLeft: diffInDays(today, inst.dueDate),
-            });
-          }
-        });
-      } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error('Failed to fetch loan installments:', error);
-        // Fallback to local calculation if API fails
-        loans
-          .filter((l) => l.aktifMi)
-          .forEach((loan) => {
-            const schedule = buildLoanSchedule(loan);
-            const nextInstallment = schedule.find((inst) => inst.dateIso >= today) || schedule[schedule.length - 1];
-            if (!nextInstallment) return;
-            payments.push({
-              id: `loan-${loan.id}`,
-              category: 'KREDI',
-              bankName: banks.find((b) => b.id === loan.bankaId)?.bankaAdi || '-',
-              name: loan.krediAdi,
-              dueDateIso: nextInstallment.dateIso,
-              dueDateDisplay: isoToDisplay(nextInstallment.dateIso),
-              amount: nextInstallment.totalPayment,
-              daysLeft: diffInDays(today, nextInstallment.dateIso),
-            });
-          });
-      }
-
       cheques
         .filter((c) => c.direction === 'BORC') // Only our issued cheques (BORC) appear in upcoming payments
         .filter((c) => ['KASADA', 'BANKADA_TAHSILDE', 'ODEMEDE'].includes(c.status))
@@ -274,7 +218,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
     };
 
     fetchUpcomingPayments();
-  }, [banks, creditCards, loans, cheques, dailyTransactions.length]); // Refresh when transactions change
+  }, [banks, creditCards, cheques, dailyTransactions.length]); // Refresh when transactions change
 
   const bankDeltasById = useMemo(() => {
     return dailyTransactions.reduce((map, tx) => {
@@ -559,68 +503,6 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         let counterparty = values.muhatap || 'Diğer';
         let description = aciklama;
 
-        // Handle KREDI_TAKSIDI - call the pay installment API
-        if (values.islemTuru === 'KREDI_TAKSIDI' && values.krediId) {
-          try {
-            const response = await apiPost<{
-              installment: {
-                id: string;
-                loanId: string;
-                installmentIndex: number;
-                dueDate: string;
-                amount: number;
-                loan: { name: string } | null;
-              };
-              transactionId: string;
-            }>('/api/loans/installments/' + values.krediId + '/pay', {
-              isoDate: values.islemTarihiIso,
-              description: values.aciklama || null,
-            });
-
-            // Fetch the full transaction from backend
-            const txResponse = await apiGet<{
-              id: string;
-              isoDate: string;
-              documentNo: string | null;
-              type: DailyTransactionType;
-              source: DailyTransactionSource;
-              counterparty: string | null;
-              description: string | null;
-              incoming: number;
-              outgoing: number;
-              balanceAfter: number;
-              bankId: string | null;
-              bankDelta: number;
-              createdAt: string;
-              createdBy: string;
-            }>(`/api/transactions/${response.transactionId}`);
-
-            const tx: DailyTransaction = {
-              id: txResponse.id,
-              isoDate: txResponse.isoDate,
-              displayDate: isoToDisplay(txResponse.isoDate),
-              documentNo: txResponse.documentNo || '',
-              type: txResponse.type,
-              source: txResponse.source,
-              counterparty: txResponse.counterparty || '',
-              description: txResponse.description || '',
-              incoming: txResponse.incoming,
-              outgoing: txResponse.outgoing,
-              balanceAfter: txResponse.balanceAfter,
-              bankId: txResponse.bankId || undefined,
-              bankDelta: txResponse.bankDelta || undefined,
-              createdAtIso: txResponse.createdAt,
-              createdBy: txResponse.createdBy,
-            };
-
-            addTransactions([tx]);
-            setOpenForm(null);
-            return;
-          } catch (error: any) {
-            alert(`Hata: ${error.message || 'Kredi taksidi ödemesi kaydedilemedi'}`);
-            return;
-          }
-        }
 
         if (values.islemTuru === 'CEK_ODEME' && values.cekId) {
           const cheque = cheques.find((c) => c.id === values.cekId);
@@ -1427,8 +1309,6 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         setSuppliers={setSuppliers}
         creditCards={creditCards}
         setCreditCards={setCreditCards}
-        loans={loans}
-        setLoans={setLoans}
         globalSettings={globalSettings}
         setGlobalSettings={setGlobalSettings}
       />

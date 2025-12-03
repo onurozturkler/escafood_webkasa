@@ -9,7 +9,6 @@ export type DailyTransactionType =
   | 'POS_KOMISYONU'
   | 'KREDI_KARTI_HARCAMA'
   | 'KREDI_KARTI_EKSTRE_ODEME'
-  | 'KREDI_TAKSIT_ODEME'
   | 'CEK_GIRISI'
   | 'CEK_TAHSIL_BANKA'
   | 'CEK_ODENMESI'
@@ -37,7 +36,6 @@ export const DAILY_TRANSACTION_TYPE_LABELS: Record<DailyTransactionType, string>
   POS_KOMISYONU: 'POS Komisyonu',
   KREDI_KARTI_HARCAMA: 'Kredi Kartı Harcaması',
   KREDI_KARTI_EKSTRE_ODEME: 'Kredi Kartı Ekstre Ödemesi',
-  KREDI_TAKSIT_ODEME: 'Kredi Taksit Ödemesi',
   CEK_GIRISI: 'Çek Girişi',
   CEK_TAHSIL_BANKA: 'Çek Tahsil (Banka)',
   CEK_ODENMESI: 'Çek Ödemesi',

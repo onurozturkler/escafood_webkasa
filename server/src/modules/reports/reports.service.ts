@@ -326,10 +326,6 @@ export class ReportsService {
         }
         return 0;
 
-      case 'KREDI_TAKSIT_ODEME':
-        // Loan installment payment: bank outflow
-        return Number(tx.outgoing) || Math.abs(Number(tx.bankDelta)) || 0;
-
       case 'DEVIR_BAKIYE':
       case 'DUZELTME':
         // Optional: exclude or handle separately

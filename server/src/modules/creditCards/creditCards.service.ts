@@ -86,11 +86,14 @@ export class CreditCardsService {
       const lastOperationDate =
         card.operations.length > 0 ? card.operations[0].isoDate : null;
 
+      const limit = card.limit ? Number(card.limit) : null;
+      const availableLimit = limit !== null ? limit - currentDebt : null;
+
       return {
         id: card.id,
         name: card.name,
         bankId: card.bankId,
-        limit: card.limit ? Number(card.limit) : null,
+        limit,
         closingDay: card.closingDay,
         dueDay: card.dueDay,
         isActive: card.isActive,
@@ -101,6 +104,7 @@ export class CreditCardsService {
         deletedAt: card.deletedAt?.toISOString() || null,
         deletedBy: card.deletedBy || null,
         currentDebt,
+        availableLimit,
         lastOperationDate,
         bank: card.bank || null,
       };
@@ -148,11 +152,14 @@ export class CreditCardsService {
       ? new Date(card.deletedAt as any)
       : null;
 
+    const limit = card.limit ? Number(card.limit) : null;
+    const availableLimit = limit !== null ? limit - currentDebt : null;
+
     return {
       id: card.id,
       name: card.name,
       bankId: card.bankId,
-      limit: card.limit ? Number(card.limit) : null,
+      limit,
       closingDay: card.closingDay,
       dueDay: card.dueDay,
       isActive: card.isActive,
@@ -163,9 +170,31 @@ export class CreditCardsService {
       deletedAt: deletedAtValue ? deletedAtValue.toISOString() : null,
       deletedBy: card.deletedBy || null,
       currentDebt,
+      availableLimit,
       lastOperationDate,
       bank: card.bank || null,
     };
+  }
+
+  /**
+   * Helper to fetch a credit card by ID or throw error
+   */
+  private async getCardOrThrow(creditCardId: string) {
+    const card = await prisma.creditCard.findUnique({
+      where: { id: creditCardId },
+      include: {
+        bank: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+    if (!card) {
+      throw new Error('Credit card not found');
+    }
+    return card;
   }
 
   /**
@@ -192,11 +221,15 @@ export class CreditCardsService {
       },
     });
 
+    const limit = card.limit ? Number(card.limit) : null;
+    const currentDebt = 0; // New card has no operations yet
+    const availableLimit = limit !== null ? limit - currentDebt : null;
+
     return {
       id: card.id,
       name: card.name,
       bankId: card.bankId,
-      limit: card.limit ? Number(card.limit) : null,
+      limit,
       closingDay: card.closingDay,
       dueDay: card.dueDay,
       isActive: card.isActive,
@@ -206,7 +239,8 @@ export class CreditCardsService {
       updatedBy: card.updatedBy || null,
       deletedAt: card.deletedAt?.toISOString() || null,
       deletedBy: card.deletedBy || null,
-      currentDebt: 0,
+      currentDebt,
+      availableLimit,
       lastOperationDate: null,
       bank: card.bank || null,
     };
@@ -266,11 +300,14 @@ export class CreditCardsService {
     const lastOperationDate =
       updated.operations.length > 0 ? updated.operations[0].isoDate : null;
 
+    const limit = updated.limit ? Number(updated.limit) : null;
+    const availableLimit = limit !== null ? limit - currentDebt : null;
+
     return {
       id: updated.id,
       name: updated.name,
       bankId: updated.bankId,
-      limit: updated.limit ? Number(updated.limit) : null,
+      limit,
       closingDay: updated.closingDay,
       dueDay: updated.dueDay,
       isActive: updated.isActive,
@@ -281,6 +318,7 @@ export class CreditCardsService {
       deletedAt: updated.deletedAt?.toISOString() || null,
       deletedBy: updated.deletedBy || null,
       currentDebt,
+      availableLimit,
       lastOperationDate,
       bank: updated.bank || null,
     };
@@ -291,11 +329,9 @@ export class CreditCardsService {
    */
   async createExpense(data: CreateExpenseDto, createdBy: string): Promise<ExpenseResponse> {
     // Verify credit card exists
-    const card = await prisma.creditCard.findUnique({
-      where: { id: data.creditCardId },
-    });
+    const card = await this.getCardOrThrow(data.creditCardId);
 
-    if (!card || card.deletedAt) {
+    if (card.deletedAt) {
       throw new Error('Credit card not found');
     }
 
@@ -368,11 +404,9 @@ export class CreditCardsService {
    */
   async createPayment(data: CreatePaymentDto, createdBy: string): Promise<PaymentResponse> {
     // Verify credit card exists
-    const card = await prisma.creditCard.findUnique({
-      where: { id: data.creditCardId },
-    });
+    const card = await this.getCardOrThrow(data.creditCardId);
 
-    if (!card || card.deletedAt) {
+    if (card.deletedAt) {
       throw new Error('Credit card not found');
     }
 

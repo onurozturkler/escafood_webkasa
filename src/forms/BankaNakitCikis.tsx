@@ -13,7 +13,6 @@ export type BankaNakitCikisTuru =
   | 'MAAS_ODEME'
   | 'FATURA_ODEME'
   | 'ORTAK_EFT_GIDEN'
-  | 'KREDI_TAKSIDI'
   | 'CEK_ODEME'
   | 'KREDI_KARTI_ODEME'
   | 'TEDARIKCI_ODEME';
@@ -30,7 +29,6 @@ export interface BankaNakitCikisFormValues {
   aciklama?: string;
   tutar: number;
   kaydedenKullanici: string;
-  krediId?: string | null;
   cekId?: string | null;
   krediKartiId?: string | null;
 }
@@ -52,7 +50,6 @@ const turLabels: Record<BankaNakitCikisTuru, string> = {
   MAAS_ODEME: 'Maaş Ödemesi',
   FATURA_ODEME: 'Fatura Ödemesi',
   ORTAK_EFT_GIDEN: 'Şirket Ortağı Şahsi Hesaba EFT/Havale',
-  KREDI_TAKSIDI: 'Kredi Taksidi',
   CEK_ODEME: 'Çek Ödemesi',
   KREDI_KARTI_ODEME: 'Kredi Kartı Ödemesi',
   TEDARIKCI_ODEME: 'Tedarikçi Ödemesi',
@@ -89,9 +86,6 @@ export default function BankaNakitCikis({
   const [dirty, setDirty] = useState(false);
   const [selectedChequeId, setSelectedChequeId] = useState('');
   const [krediKartiId, setKrediKartiId] = useState('');
-  const [selectedInstallmentId, setSelectedInstallmentId] = useState('');
-  const [installments, setInstallments] = useState<Array<{ id: string; loanId: string; installmentIndex: number; dueDate: string; amount: number; loan: { name: string } | null }>>([]);
-  const [loadingInstallments, setLoadingInstallments] = useState(false);
 
   const eligibleCheques = useMemo(
     () =>
@@ -128,33 +122,8 @@ export default function BankaNakitCikis({
       setDirty(false);
       setSelectedChequeId('');
       setKrediKartiId('');
-      setSelectedInstallmentId('');
-      setInstallments([]);
     }
   }, [isOpen]);
-
-  // Fetch installments when KREDI_TAKSIDI is selected and bank is chosen
-  useEffect(() => {
-    if (isOpen && islemTuru === 'KREDI_TAKSIDI' && bankaId) {
-      setLoadingInstallments(true);
-      apiGet<Array<{ id: string; loanId: string; installmentIndex: number; dueDate: string; amount: number; loan: { name: string } | null }>>(
-        `/api/loans/upcoming-installments?bankId=${bankaId}`
-      )
-        .then((data) => {
-          setInstallments(data);
-          setLoadingInstallments(false);
-        })
-        .catch((error) => {
-          // eslint-disable-next-line no-console
-          console.error('Failed to fetch installments:', error);
-          setInstallments([]);
-          setLoadingInstallments(false);
-        });
-    } else {
-      setInstallments([]);
-      setSelectedInstallmentId('');
-    }
-  }, [isOpen, islemTuru, bankaId]);
 
   const muhatapRequired = useMemo(
     () => islemTuru === 'MAAS_ODEME' || islemTuru === 'TEDARIKCI_ODEME',
@@ -163,7 +132,6 @@ export default function BankaNakitCikis({
   const faturaRequired = useMemo(() => islemTuru === 'FATURA_ODEME', [islemTuru]);
   const hedefRequired = useMemo(() => islemTuru === 'VIRMAN', [islemTuru]);
   const isCardPayment = islemTuru === 'KREDI_KARTI_ODEME';
-  const isLoanInstallment = islemTuru === 'KREDI_TAKSIDI';
 
   const handleClose = () => {
     if (dirty && !window.confirm('Kaydedilmemiş bilgiler var. Kapatmak istiyor musunuz?')) return;
@@ -175,18 +143,11 @@ export default function BankaNakitCikis({
     let tutar = parseTl(tutarText || '0') || 0;
     const selectedCheque = eligibleCheques.find((c) => c.id === selectedChequeId);
     const selectedCard = isCardPayment ? eligibleCards.find((c) => c.id === krediKartiId) : undefined;
-    const selectedInstallment = installments.find((i) => i.id === selectedInstallmentId);
     
     if (islemTuru === 'CEK_ODEME') {
       if (!selectedCheque) return;
       tutar = selectedCheque.tutar;
       setTutarText(formatTlPlain(selectedCheque.tutar));
-    }
-    
-    if (islemTuru === 'KREDI_TAKSIDI') {
-      if (!selectedInstallment) return;
-      tutar = selectedInstallment.amount;
-      setTutarText(formatTlPlain(selectedInstallment.amount));
     }
     
     if (isCardPayment) {
@@ -199,7 +160,6 @@ export default function BankaNakitCikis({
     if (faturaRequired && !faturaMuhatabi) return;
     if (hedefRequired && !hedefBankaId) return;
     if (isCardPayment && !krediKartiId) return;
-    if (islemTuru === 'KREDI_TAKSIDI' && !selectedInstallmentId) return;
     if (islemTarihiIso > today) {
       alert('Gelecek tarihli işlem kaydedilemez.');
       return;
@@ -240,7 +200,6 @@ export default function BankaNakitCikis({
       aciklama: aciklama || undefined,
       tutar,
       kaydedenKullanici: currentUserEmail,
-      krediId: islemTuru === 'KREDI_TAKSIDI' ? selectedInstallmentId : null,
       cekId: islemTuru === 'CEK_ODEME' ? selectedChequeId : null,
       krediKartiId: isCardPayment ? krediKartiId : null,
     });
@@ -312,7 +271,7 @@ export default function BankaNakitCikis({
                 setDirty(true);
                 setSelectedChequeId('');
                 setKrediKartiId('');
-                if (next !== 'CEK_ODEME' && next !== 'KREDI_TAKSIDI') setTutarText('');
+                if (next !== 'CEK_ODEME') setTutarText('');
               }}
             >
               {Object.entries(turLabels).map(([value, label]) => (
@@ -402,36 +361,6 @@ export default function BankaNakitCikis({
               </select>
             </div>
           )}
-          {islemTuru === 'KREDI_TAKSIDI' && (
-            <div className="space-y-2">
-              <label>Ödenecek Taksit</label>
-              {loadingInstallments ? (
-                <div className="text-sm text-slate-500">Yükleniyor...</div>
-              ) : installments.length === 0 ? (
-                <div className="text-sm text-slate-500">Bu banka için ödenmemiş taksit bulunamadı.</div>
-              ) : (
-                <select
-                  className="w-full"
-                  value={selectedInstallmentId}
-                  onChange={(e) => {
-                    setSelectedInstallmentId(e.target.value);
-                    const inst = installments.find((i) => i.id === e.target.value);
-                    if (inst) {
-                      setTutarText(formatTlPlain(inst.amount));
-                    }
-                    setDirty(true);
-                  }}
-                >
-                  <option value="">Seçiniz</option>
-                  {installments.map((inst) => (
-                    <option key={inst.id} value={inst.id}>
-                      {`${inst.loan?.name || 'Kredi'} - ${inst.installmentIndex}. taksit (Vade: ${isoToDisplay(inst.dueDate)}, Tutar: ${formatTl(inst.amount)})`}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-          )}
           {isCardPayment && (
             <div className="space-y-2">
               <label>Ödeme Tutarı</label>
@@ -502,12 +431,9 @@ export default function BankaNakitCikis({
                 className="w-full"
                 value={tutarText}
                 onChange={(e) => {
-                  if (!isLoanInstallment) {
-                    setTutarText(e.target.value);
-                    setDirty(true);
-                  }
+                  setTutarText(e.target.value);
+                  setDirty(true);
                 }}
-                readOnly={isLoanInstallment}
                 placeholder="0,00"
               />
             </div>

@@ -19,7 +19,16 @@ function handleError(res: Response, error: unknown) {
   // Prisma errors and other runtime errors should be 500
   if (error instanceof Error) {
     // Log the error for debugging (in production, use proper logging)
-    console.error('Transaction error:', error);
+    console.error('Transaction error:', error.message);
+    console.error('Stack:', error.stack);
+    // In development, return the actual error message for debugging
+    if (process.env.NODE_ENV !== 'production') {
+      return res.status(500).json({ 
+        message: 'Internal server error', 
+        error: error.message,
+        stack: error.stack 
+      });
+    }
     return res.status(500).json({ message: 'Internal server error' });
   }
 

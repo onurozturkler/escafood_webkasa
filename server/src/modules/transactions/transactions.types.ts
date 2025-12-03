@@ -18,7 +18,6 @@ export interface TransactionDto {
   bankId: string | null;
   creditCardId: string | null;
   chequeId: string | null;
-  loanInstallmentId: string | null;
   customerId: string | null;
   supplierId: string | null;
   attachmentId: string | null;
@@ -46,7 +45,6 @@ export interface CreateTransactionDto {
   bankId?: string | null;
   creditCardId?: string | null;
   chequeId?: string | null;
-  loanInstallmentId?: string | null;
   customerId?: string | null;
   supplierId?: string | null;
   attachmentId?: string | null;
@@ -68,7 +66,6 @@ export interface UpdateTransactionDto {
   bankId?: string | null;
   creditCardId?: string | null;
   chequeId?: string | null;
-  loanInstallmentId?: string | null;
   customerId?: string | null;
   supplierId?: string | null;
   attachmentId?: string | null;

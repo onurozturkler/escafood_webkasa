@@ -1,16 +1,40 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 
+/**
+ * Get current user ID from localStorage
+ * Returns the user ID (e.g., 'onur', 'hayrullah') or null if not logged in
+ */
+function getCurrentUserId(): string | null {
+  const saved = localStorage.getItem('esca-webkasa-user');
+  if (!saved) return null;
+  
+  // Map email to user ID
+  if (saved === 'onur@esca-food.com') return 'onur';
+  if (saved === 'hayrullah@esca-food.com') return 'hayrullah';
+  
+  return null;
+}
+
 export async function apiRequest<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
+  const userId = getCurrentUserId();
+  
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...options.headers,
+  };
+  
+  // Add user ID header if available
+  if (userId) {
+    headers['x-user-id'] = userId;
+  }
+  
   const response = await fetch(url, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
+    headers,
   });
 
   if (!response.ok) {
