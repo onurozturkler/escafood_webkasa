@@ -87,9 +87,9 @@ export default function AyarlarModal(props: Props) {
 
   const [dirty, setDirty] = useState(false);
   const [globalForm, setGlobalForm] = useState<GlobalSettings>(globalSettings);
-  // Fix Bug 1: Use local state for banks and credit cards to show actual DB state
-  const [localBanks, setLocalBanks] = useState<BankMaster[]>(propsBanks);
-  const [localCreditCards, setLocalCreditCards] = useState<CreditCard[]>(propsCreditCards);
+  // Fix Bug 1: Use local state for banks and credit cards - start empty, will be populated from backend
+  const [localBanks, setLocalBanks] = useState<BankMaster[]>([]);
+  const [localCreditCards, setLocalCreditCards] = useState<CreditCard[]>([]);
 
   // Fix Bug 1 & 2: Fetch fresh data from backend when modal opens
   useEffect(() => {
@@ -170,19 +170,19 @@ export default function AyarlarModal(props: Props) {
         setCreditCards(mappedCreditCards);
       } catch (error) {
         console.error('Failed to fetch fresh data in Settings modal:', error);
-        // On error, use props as fallback
-        setLocalBanks(propsBanks);
-        setLocalCreditCards(propsCreditCards);
+        // On error, keep empty arrays (don't show stale props data)
+        setLocalBanks([]);
+        setLocalCreditCards([]);
       }
       };
       
       fetchFreshData();
     } else {
-      // When modal closes, sync local state with props
-      setLocalBanks(propsBanks);
-      setLocalCreditCards(propsCreditCards);
+      // When modal closes, reset to empty arrays
+      setLocalBanks([]);
+      setLocalCreditCards([]);
     }
-  }, [isOpen, globalSettings, setBanks, setCreditCards, propsBanks, propsCreditCards]);
+  }, [isOpen, globalSettings, setBanks, setCreditCards]);
 
   const handleClose = () => {
     if (dirty && !window.confirm('Kaydedilmemiş bilgiler var. Kapatmak istiyor musunuz?')) return;
