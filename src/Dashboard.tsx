@@ -649,7 +649,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
 
           console.log('Sending transaction with bankId:', normalizedBankId, 'for bank:', selectedBank.hesapAdi);
 
-          // Fix Bug 3: Bank cash in - type: NAKIT_TAHSILAT, source: BANKA, incoming = amount, outgoing = 0, bankDelta = +amount
+          // Fix: Bank cash in - type: NAKIT_TAHSILAT, source: BANKA, incoming = amount (will be normalized to 0), outgoing = 0, bankDelta = +amount
           const response = await apiPost<{
             id: string;
             isoDate: string;
@@ -672,9 +672,9 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
             source: 'BANKA',
             counterparty,
             description: values.aciklama || null,
-            incoming: values.tutar, // Fix Bug 3: Set incoming = amount for bank cash in
+            incoming: values.tutar, // Backend will normalize to 0 for BANK CASH IN
             outgoing: 0,
-            bankDelta: values.tutar, // Fix Bug 3: bankDelta = +amount
+            bankDelta: values.tutar, // Backend will use this for bankDelta
             bankId: normalizedBankId,
           });
 
@@ -943,17 +943,17 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         }>('/api/transactions', {
           isoDate: values.islemTarihiIso,
           documentNo,
-          // Fix Bug 3: Bank cash out should use NAKIT_ODEME type (not BANKA_HAVALE_CIKIS) for regular cash out
-          // But keep CEK_ODENMESI for cheque payments
+          // Fix: Bank cash out - type: NAKIT_ODEME (or CEK_ODENMESI for cheques), source: BANKA, incoming = 0, outgoing = amount, bankDelta = -amount
           type: values.islemTuru === 'CEK_ODEME' ? 'CEK_ODENMESI' : 'NAKIT_ODEME',
           source: 'BANKA',
           counterparty: counterparty || 'Diğer',
           description: description || null,
           incoming: 0,
-          outgoing: tutar, // Fix Bug 3: Set outgoing = amount for bank cash out
-          bankDelta: -tutar, // Fix Bug 3: bankDelta = -amount
+          outgoing: tutar, // Backend will normalize correctly
+          bankDelta: -tutar, // Backend will normalize correctly
           bankId: normalizedBankId,
-          supplierId: values.supplierId || null, // Fix Bug 2: Pass supplierId
+          supplierId: values.supplierId || null,
+          creditCardId: values.krediKartiId || null, // Include credit card ID for credit card payments
         });
 
         // Backend'den gelen transaction'ı frontend formatına çevir
@@ -1027,7 +1027,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         displayIncoming: values.brutTutar,
       });
 
-      // Create POS komisyon transaction
+      // Fix: POS commission transaction - outgoing=commissionAmount, bankDelta=-commissionAmount
       const komisyonResponse = await apiPost<{
         id: string;
         isoDate: string;
@@ -1052,8 +1052,8 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         counterparty,
         description: values.aciklama || 'POS Komisyonu',
         incoming: 0,
-        outgoing: 0,
-        bankDelta: 0,
+        outgoing: 0, // Backend will normalize based on transaction type
+        bankDelta: -values.komisyonTutar, // Commission reduces bank balance
         bankId: values.bankaId,
         displayOutgoing: values.komisyonTutar,
       });
@@ -1697,40 +1697,51 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
               }>>('/api/credit-cards'),
             ]);
             
-            const mappedBanks: BankMaster[] = backendBanks.map((bank) => ({
-              id: bank.id, // Real Bank.id from Prisma
-              bankaAdi: bank.name,
-              kodu: bank.accountNo ? bank.accountNo.substring(0, 4).toUpperCase() : 'BNK',
-              hesapAdi: bank.name + (bank.accountNo ? ` - ${bank.accountNo}` : ''),
-              iban: bank.iban || undefined,
-              acilisBakiyesi: bank.currentBalance,
-              aktifMi: bank.isActive,
-              cekKarnesiVarMi: false,
-              posVarMi: false,
-              krediKartiVarMi: false,
-            }));
+            // Fix: Load boolean flags from localStorage (they're not stored in backend)
+            const bankFlagsKey = 'esca-webkasa-bank-flags';
+            const savedFlags = localStorage.getItem(bankFlagsKey);
+            const bankFlags: Record<string, { cekKarnesiVarMi: boolean; posVarMi: boolean; krediKartiVarMi: boolean }> = savedFlags ? JSON.parse(savedFlags) : {};
+            
+            const mappedBanks: BankMaster[] = backendBanks.map((bank) => {
+              const flags = bankFlags[bank.id] || { cekKarnesiVarMi: false, posVarMi: false, krediKartiVarMi: false };
+              return {
+                id: bank.id,
+                bankaAdi: bank.name,
+                kodu: bank.accountNo ? bank.accountNo.substring(0, 4).toUpperCase() : 'BNK',
+                hesapAdi: bank.name + (bank.accountNo ? ` - ${bank.accountNo}` : ''),
+                iban: bank.iban || undefined,
+                acilisBakiyesi: bank.currentBalance,
+                aktifMi: bank.isActive,
+                cekKarnesiVarMi: flags.cekKarnesiVarMi,
+                posVarMi: flags.posVarMi,
+                krediKartiVarMi: flags.krediKartiVarMi,
+              };
+            });
+            
+            // Fix: Load credit card extras from localStorage
+            const cardExtrasKey = 'esca-webkasa-card-extras';
+            const savedExtras = localStorage.getItem(cardExtrasKey);
+            const cardExtras: Record<string, { sonEkstreBorcu: number; asgariOran: number; maskeliKartNo: string }> = savedExtras ? JSON.parse(savedExtras) : {};
             
             const mappedCreditCards: CreditCard[] = backendCreditCards.map((card) => {
-              // Fix Bug 6: Backend returns limit as number | null, availableLimit as number | null
-              // If limit is null, it means not set, so use 0 for display
-              // But if limit is set (e.g., 250000), use that value
-              const limit = card.limit ?? 0;
-              const availableLimit = card.availableLimit ?? (card.limit !== null ? card.limit - card.currentDebt : 0);
+              const limit = card.limit; // Preserve null if not set
+              const availableLimit = card.availableLimit; // Preserve null if limit is not set
+              const extras = cardExtras[card.id] || { sonEkstreBorcu: 0, asgariOran: 0.4, maskeliKartNo: '' };
               
               return {
-                id: card.id, // Real CreditCard.id from Prisma
+                id: card.id,
                 bankaId: card.bankId || '',
                 kartAdi: card.name,
-                kartLimit: limit, // Use backend limit
-                limit: limit, // Use backend limit (primary field)
-                kullanilabilirLimit: availableLimit, // Use backend availableLimit
-                asgariOran: 0.4, // Default value
-                hesapKesimGunu: card.closingDay || 1,
-                sonOdemeGunu: card.dueDay || 1,
-                maskeliKartNo: '', // Not stored in backend
+                kartLimit: limit, // Use backend limit (can be null)
+                limit: limit, // Use backend limit (can be null)
+                kullanilabilirLimit: availableLimit, // Use backend availableLimit (can be null)
+                asgariOran: extras.asgariOran,
+                hesapKesimGunu: card.closingDay ?? 1,
+                sonOdemeGunu: card.dueDay ?? 1,
+                maskeliKartNo: extras.maskeliKartNo,
                 aktifMi: card.isActive,
-                sonEkstreBorcu: 0, // Not calculated in backend yet
-                guncelBorc: card.currentDebt, // Use backend currentDebt
+                sonEkstreBorcu: extras.sonEkstreBorcu,
+                guncelBorc: card.currentDebt,
               };
             });
             

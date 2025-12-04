@@ -46,11 +46,12 @@ export class ReportsService {
     }
 
     // Calculate opening balance (before from date)
-    // This is the cash balance BEFORE the start of the date range
+    // IMPORTANT: Only KASA transactions affect cash balance
     const beforeTransactions = await prisma.transaction.findMany({
       where: {
         deletedAt: null,
         isoDate: { lt: fromDate },
+        source: 'KASA', // Only KASA transactions affect cash balance
       },
       orderBy: [
         { isoDate: 'asc' },
@@ -150,6 +151,7 @@ export class ReportsService {
         bankId: tx.bankId,
         bankName: tx.bank?.name || null,
         creditCardId: tx.creditCardId,
+        creditCardName: tx.creditCard?.name || null,
       })),
       totalCount,
       totalIncoming,
@@ -216,6 +218,12 @@ export class ReportsService {
             name: true,
           },
         },
+        creditCard: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
       },
     });
 
@@ -238,6 +246,7 @@ export class ReportsService {
           bankId: tx.bankId,
           bankName: tx.bank?.name || null,
           creditCardId: tx.creditCardId,
+          creditCardName: tx.creditCard?.name || null,
         });
       }
 
@@ -252,6 +261,7 @@ export class ReportsService {
           bankId: tx.bankId,
           bankName: tx.bank?.name || null,
           creditCardId: tx.creditCardId,
+          creditCardName: tx.creditCard?.name || null,
         });
       }
     }

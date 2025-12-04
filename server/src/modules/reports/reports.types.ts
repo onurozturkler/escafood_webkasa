@@ -26,9 +26,10 @@ export interface KasaDefteriResponse {
     incoming: number;
     outgoing: number;
     balanceAfter: number;
-    bankId: string | null; // Fix Bug 4: Include bankId for bank transactions
-    bankName: string | null; // Fix Bug 4: Include bank name
-    creditCardId: string | null; // Fix Bug 4: Include creditCardId for card transactions
+    bankId: string | null;
+    bankName: string | null;
+    creditCardId: string | null;
+    creditCardName: string | null; // Include credit card name
   }[];
   totalCount: number;
   totalIncoming: number;
@@ -56,9 +57,10 @@ export interface NakitAkisResponse {
     counterparty: string | null;
     description: string | null;
     amount: number;
-    bankId: string | null; // Fix Bug 4: Include bankId
-    bankName: string | null; // Fix Bug 4: Include bank name
-    creditCardId: string | null; // Fix Bug 4: Include creditCardId
+    bankId: string | null;
+    bankName: string | null;
+    creditCardId: string | null;
+    creditCardName: string | null;
   }[];
   cikislar: {
     isoDate: string;
@@ -67,9 +69,10 @@ export interface NakitAkisResponse {
     counterparty: string | null;
     description: string | null;
     amount: number;
-    bankId: string | null; // Fix Bug 4: Include bankId
-    bankName: string | null; // Fix Bug 4: Include bank name
-    creditCardId: string | null; // Fix Bug 4: Include creditCardId
+    bankId: string | null;
+    bankName: string | null;
+    creditCardId: string | null;
+    creditCardName: string | null;
   }[];
 }
 

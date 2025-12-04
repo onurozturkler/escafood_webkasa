@@ -54,11 +54,72 @@ async function calculateBalanceAfter(
 export class TransactionsService {
   /**
    * Create a new transaction
+   * 
+   * STRICT TRANSACTION MAPPING:
+   * 1) CASH IN (NAKIT_TAHSILAT, source=KASA): incoming=amount, outgoing=0, bankDelta=0
+   * 2) CASH OUT (NAKIT_ODEME, source=KASA): incoming=0, outgoing=amount, bankDelta=0
+   * 3) BANK CASH IN (NAKIT_TAHSILAT, source=BANKA): incoming=0, outgoing=0, bankDelta=+amount
+   * 4) BANK CASH OUT (NAKIT_ODEME, source=BANKA): incoming=0, outgoing=amount, bankDelta=-amount
+   * 5) POS COLLECTION (POS_TAHSILAT_BRUT): incoming=0, outgoing=0, bankDelta=+netAmount
+   * 6) CREDIT CARD EXPENSE: incoming=0, outgoing=0, bankDelta=0 (cardDebtDelta handled separately)
+   * 7) CREDIT CARD PAYMENT: source=BANKA, outgoing=amount, bankDelta=-amount
    */
   async createTransaction(data: CreateTransactionDto, createdBy: string): Promise<TransactionDto> {
-    // Use ?? instead of || to preserve 0 values (0 is a valid amount)
-    const incoming = data.incoming ?? 0;
-    const outgoing = data.outgoing ?? 0;
+    // Apply strict transaction mapping based on type and source
+    let incoming = data.incoming ?? 0;
+    let outgoing = data.outgoing ?? 0;
+    let bankDelta = data.bankDelta ?? 0;
+    
+    // Fix: Apply strict mapping rules
+    if (data.type === 'NAKIT_TAHSILAT' && data.source === 'KASA') {
+      // CASH IN: incoming=amount, outgoing=0, bankDelta=0
+      incoming = data.incoming ?? 0;
+      outgoing = 0;
+      bankDelta = 0;
+    } else if (data.type === 'NAKIT_ODEME' && data.source === 'KASA') {
+      // CASH OUT: incoming=0, outgoing=amount, bankDelta=0
+      incoming = 0;
+      outgoing = data.outgoing ?? 0;
+      bankDelta = 0;
+    } else if (data.type === 'NAKIT_TAHSILAT' && data.source === 'BANKA') {
+      // BANK CASH IN: incoming=0, outgoing=0, bankDelta=+amount
+      incoming = 0;
+      outgoing = 0;
+      bankDelta = data.incoming ?? 0; // Use incoming as the amount for bank cash in
+    } else if (data.type === 'NAKIT_ODEME' && data.source === 'BANKA') {
+      // BANK CASH OUT: incoming=0, outgoing=amount, bankDelta=-amount
+      incoming = 0;
+      outgoing = data.outgoing ?? 0;
+      bankDelta = -(data.outgoing ?? 0);
+    } else if (data.type === 'POS_TAHSILAT_BRUT') {
+      // POS COLLECTION: incoming=0, outgoing=0, bankDelta=+netAmount (from displayIncoming)
+      incoming = 0;
+      outgoing = 0;
+      bankDelta = data.displayIncoming ?? 0; // Net amount after commission
+    } else if (data.type === 'POS_KOMISYONU') {
+      // POS COMMISSION: incoming=0, outgoing=0 (displayOutgoing shows commission), bankDelta=-commissionAmount
+      incoming = 0;
+      outgoing = 0;
+      bankDelta = data.bankDelta ?? 0; // Should be negative commission amount
+    } else if (data.type === 'KREDI_KARTI_HARCAMA') {
+      // CREDIT CARD EXPENSE: incoming=0, outgoing=0, bankDelta=0
+      incoming = 0;
+      outgoing = 0;
+      bankDelta = 0;
+    } else if (data.type === 'KREDI_KARTI_EKSTRE_ODEME') {
+      // CREDIT CARD PAYMENT: 
+      // - If source=BANKA: incoming=0, outgoing=amount, bankDelta=-amount
+      // - If source=KASA: incoming=0, outgoing=amount, bankDelta=0
+      incoming = 0;
+      outgoing = data.outgoing ?? 0;
+      if (data.source === 'BANKA') {
+        bankDelta = -(data.outgoing ?? 0);
+      } else {
+        bankDelta = 0;
+      }
+    }
+    // For other transaction types, use provided values (they may have custom logic)
+    
     const balanceAfter = await calculateBalanceAfter(data.isoDate, incoming, outgoing, data.source);
 
     // Data has already been validated by Zod schema, so bankId and creditCardId are either
@@ -116,7 +177,7 @@ export class TransactionsService {
       description: data.description ?? null,
       incoming: incoming,
       outgoing: outgoing,
-      bankDelta: data.bankDelta ?? 0,
+      bankDelta: bankDelta,
       displayIncoming: data.displayIncoming ?? null,
       displayOutgoing: data.displayOutgoing ?? null,
       balanceAfter: balanceAfter,

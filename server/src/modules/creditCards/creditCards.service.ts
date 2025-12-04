@@ -415,32 +415,38 @@ export class CreditCardsService {
       throw new Error('bankId is required when paymentSource is BANKA');
     }
 
-    // Determine transaction fields based on paymentSource
+    // Fix: Apply strict mapping for credit card payments
     let incoming = 0;
     let outgoing = 0;
     let bankDelta = 0;
     let bankId: string | null = null;
 
     if (data.paymentSource === 'BANKA') {
+      // CREDIT CARD PAYMENT from bank: source=BANKA, incoming=0, outgoing=amount, bankDelta=-amount
       bankId = data.bankId || null;
+      incoming = 0;
+      outgoing = data.amount; // Backend transaction service will normalize based on type
       bankDelta = -data.amount; // Negative for bank outflow
-      outgoing = 0;
     } else {
-      // KASA
+      // KASA - payment from cash
       bankId = null;
-      bankDelta = 0;
+      incoming = 0;
       outgoing = data.amount;
+      bankDelta = 0;
     }
 
     const balanceAfter = await calculateBalanceAfter(data.isoDate, incoming, outgoing);
 
+    // Fix: Credit card payment from bank should have source=BANKA
+    const transactionSource = data.paymentSource === 'BANKA' ? 'BANKA' : 'KASA';
+    
     // Create transaction
     const transaction = await prisma.transaction.create({
       data: {
         isoDate: data.isoDate,
         documentNo: null,
         type: 'KREDI_KARTI_EKSTRE_ODEME',
-        source: 'KREDI_KARTI',
+        source: transactionSource, // BANKA if payment from bank, KASA if from cash
         creditCardId: data.creditCardId,
         bankId,
         counterparty: null,

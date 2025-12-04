@@ -225,10 +225,8 @@ export default function AyarlarModal(props: Props) {
     });
     localStorage.setItem(cardExtrasKey, JSON.stringify(cardExtras));
     
-    // Fix Bug 3: Update parent state with latest data before closing
-    setBanks(localBanks);
-    setCreditCards(localCreditCards);
-    
+    // Fix: Don't update parent state here - let Dashboard's onClose callback re-fetch from backend
+    // This ensures we get the latest data from backend, and then load localStorage flags/extras
     onClose();
   };
 

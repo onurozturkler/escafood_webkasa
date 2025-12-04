@@ -20,16 +20,17 @@ async function createBankOpeningBalanceTransaction(
     return;
   }
 
+  // Fix: Bank opening balance should follow BANK CASH IN mapping: incoming=0, outgoing=0, bankDelta=+amount
   await transactionsService.createTransaction(
     {
       isoDate,
-      type: DailyTransactionType.BANKA_HAVALE_GIRIS, // Use existing bank cash in type
+      type: DailyTransactionType.NAKIT_TAHSILAT, // Use NAKIT_TAHSILAT for bank cash in
       source: DailyTransactionSource.BANKA,
       counterparty: null,
       description: 'Açılış bakiyesi',
-      incoming: initialBalance,
+      incoming: initialBalance, // Will be normalized to 0 by transaction service
       outgoing: 0,
-      bankDelta: initialBalance,
+      bankDelta: initialBalance, // Will be normalized correctly by transaction service
       bankId,
       documentNo: null,
       cashAccountId: null,
