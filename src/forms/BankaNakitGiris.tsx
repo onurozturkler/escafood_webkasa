@@ -203,7 +203,7 @@ export default function BankaNakitGiris({
             </select>
           </FormRow>
           <FormRow label="Muhatap" required={muhatapRequired}>
-            {['MUSTERI_EFT', 'TEDARIKCI_EFT', 'ORTAK_EFT_GELEN'].includes(islemTuru) ? (
+            {['MUSTERI_EFT', 'TEDARIKCI_EFT'].includes(islemTuru) ? (
               <SearchableSelect
                 valueId={muhatapId}
                 onChange={(val) => {
@@ -233,7 +233,7 @@ export default function BankaNakitGiris({
                   setMuhatap(e.target.value);
                   setDirty(true);
                 }}
-                placeholder="Muhatap"
+                placeholder={islemTuru === 'ORTAK_EFT_GELEN' ? 'Şirket ortağı adı' : 'Muhatap'}
               />
             )}
           </FormRow>

@@ -838,6 +838,8 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           balanceAfter: number;
           bankId: string | null;
           bankDelta: number;
+          displayIncoming: number | null;
+          displayOutgoing: number | null;
           createdAt: string;
           createdBy: string;
         }>('/api/transactions', {
@@ -850,6 +852,8 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           incoming: 0,
           outgoing: 0,
           bankDelta: values.tutar,
+          displayIncoming: values.tutar, // FIX: Show incoming amount for virman giriş transaction
+          displayOutgoing: null,
           bankId: normalizedHedefBankId,
         });
 
@@ -886,6 +890,8 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           balanceAfter: inResponse.balanceAfter,
           bankId: inResponse.bankId || undefined,
           bankDelta: inResponse.bankDelta || undefined,
+          displayIncoming: inResponse.displayIncoming ?? values.tutar, // FIX: Use displayIncoming from backend
+          displayOutgoing: inResponse.displayOutgoing ?? null,
           createdAtIso: inResponse.createdAt,
           createdBy: inResponse.createdBy,
         };
@@ -971,6 +977,53 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
             };
 
             addTransactions([tx]);
+            
+            // FIX: Refresh credit cards after payment to update currentDebt
+            try {
+              const backendCreditCards = await apiGet<Array<{
+                id: string;
+                name: string;
+                bankId: string | null;
+                limit: number | null;
+                closingDay: number | null;
+                dueDay: number | null;
+                isActive: boolean;
+                currentDebt: number;
+                availableLimit: number | null;
+                lastOperationDate: string | null;
+              }>>('/api/credit-cards');
+              
+              const cardExtrasKey = 'esca-webkasa-card-extras';
+              const savedExtras = localStorage.getItem(cardExtrasKey);
+              const cardExtras: Record<string, { sonEkstreBorcu: number; asgariOran: number; maskeliKartNo: string }> = savedExtras ? JSON.parse(savedExtras) : {};
+              
+              const mappedCreditCards: CreditCard[] = backendCreditCards.map((card) => {
+                const limit = card.limit;
+                const availableLimit = card.availableLimit;
+                const extras = cardExtras[card.id] || { sonEkstreBorcu: 0, asgariOran: 0.4, maskeliKartNo: '' };
+                
+                return {
+                  id: card.id,
+                  bankaId: card.bankId || '',
+                  kartAdi: card.name,
+                  kartLimit: limit,
+                  limit: limit,
+                  kullanilabilirLimit: availableLimit,
+                  asgariOran: extras.asgariOran,
+                  hesapKesimGunu: card.closingDay ?? 1,
+                  sonOdemeGunu: card.dueDay ?? 1,
+                  maskeliKartNo: extras.maskeliKartNo,
+                  aktifMi: card.isActive,
+                  sonEkstreBorcu: extras.sonEkstreBorcu,
+                  guncelBorc: card.currentDebt, // FIX: Use updated currentDebt from backend
+                };
+              });
+              
+              setCreditCards(mappedCreditCards);
+            } catch (refreshError) {
+              console.error('Failed to refresh credit cards after payment:', refreshError);
+            }
+            
             setOpenForm(null);
             return;
           } catch (error: any) {
@@ -981,8 +1034,16 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
 
         // Fix Bug 2: Get supplier for supplier payments
         const selectedSupplier = values.supplierId ? suppliers.find((s) => s.id === values.supplierId) : undefined;
-        if (values.islemTuru === 'TEDARIKCI_ODEME' && selectedSupplier) {
-          counterparty = `${selectedSupplier.kod} - ${selectedSupplier.ad}`;
+        if (values.islemTuru === 'TEDARIKCI_ODEME') {
+          if (selectedSupplier) {
+            counterparty = `${selectedSupplier.kod} - ${selectedSupplier.ad}`;
+          } else if (!values.supplierId) {
+            // If no supplier selected, use muhatap field
+            counterparty = values.muhatap || 'Tedarikçi Ödemesi';
+          } else {
+            // Supplier ID provided but not found - this should not happen but handle gracefully
+            counterparty = values.muhatap || 'Tedarikçi Ödemesi';
+          }
         }
 
         // Backend'e kaydet
@@ -1018,8 +1079,10 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           displayIncoming: null, // BUG 2 FIX: No incoming for bank cash out
           displayOutgoing: tutar, // BUG 2 FIX: Show amount in UI
           bankId: normalizedBankId,
-          // BUG 3 FIX: Normalize supplierId and creditCardId - convert empty strings to null
-          supplierId: (values.supplierId && values.supplierId.trim()) ? values.supplierId.trim() : null,
+          // FIX: Normalize supplierId - only set if supplier payment and supplierId is valid UUID
+          supplierId: (values.islemTuru === 'TEDARIKCI_ODEME' && values.supplierId && values.supplierId.trim() && uuidRegex.test(values.supplierId.trim())) 
+            ? values.supplierId.trim() 
+            : null,
           creditCardId: (values.krediKartiId && values.krediKartiId.trim()) ? values.krediKartiId.trim() : null,
           chequeId: values.cekId && values.cekId.trim() ? values.cekId.trim() : null, // BUG 3 FIX: Include chequeId for cheque payments
         });
