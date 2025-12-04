@@ -1,5 +1,49 @@
 import { prisma } from '../../config/prisma';
 import { BankRecord, BankWithBalance, CreateBankDTO, DeleteBankDTO, UpdateBankDTO } from './banks.types';
+import { TransactionsService } from '../transactions/transactions.service';
+import { DailyTransactionType, DailyTransactionSource } from '@prisma/client';
+
+const transactionsService = new TransactionsService();
+
+/**
+ * Create an opening balance transaction for a newly created bank
+ * This ensures the bank's balance is correctly initialized in the transaction system
+ */
+async function createBankOpeningBalanceTransaction(
+  bankId: string,
+  initialBalance: number,
+  isoDate: string,
+  createdBy: string
+): Promise<void> {
+  // Only create transaction if there's a non-zero opening balance
+  if (!initialBalance || initialBalance === 0) {
+    return;
+  }
+
+  await transactionsService.createTransaction(
+    {
+      isoDate,
+      type: DailyTransactionType.BANKA_HAVALE_GIRIS, // Use existing bank cash in type
+      source: DailyTransactionSource.BANKA,
+      counterparty: null,
+      description: 'Açılış bakiyesi',
+      incoming: initialBalance,
+      outgoing: 0,
+      bankDelta: initialBalance,
+      bankId,
+      documentNo: null,
+      cashAccountId: null,
+      creditCardId: null,
+      chequeId: null,
+      customerId: null,
+      supplierId: null,
+      attachmentId: null,
+      displayIncoming: null,
+      displayOutgoing: null,
+    },
+    createdBy
+  );
+}
 
 export class BanksService {
   async getAllBanksWithBalances(): Promise<BankWithBalance[]> {
@@ -36,7 +80,7 @@ export class BanksService {
     }));
   }
 
-  async createBank(payload: CreateBankDTO, createdBy: string): Promise<BankRecord> {
+  async createBank(payload: CreateBankDTO, createdBy: string): Promise<BankWithBalance> {
     const created = await prisma.bank.create({
       data: {
         name: payload.name,
@@ -46,7 +90,32 @@ export class BanksService {
       },
     });
 
-    return created;
+    // Create opening balance transaction if initialBalance is provided and non-zero
+    const initialBalance = payload.initialBalance ?? 0;
+    if (initialBalance !== 0) {
+      // Use today's date for opening balance transaction
+      const today = new Date().toISOString().split('T')[0];
+      await createBankOpeningBalanceTransaction(created.id, initialBalance, today, createdBy);
+    }
+
+    // Calculate current balance (will include opening balance transaction if created)
+    const balanceGroups = await prisma.transaction.groupBy({
+      by: ['bankId'],
+      _sum: { bankDelta: true },
+      where: {
+        deletedAt: null,
+        bankId: created.id,
+      },
+    });
+
+    const currentBalance = balanceGroups.length > 0 && balanceGroups[0]._sum?.bankDelta
+      ? Number(balanceGroups[0]._sum.bankDelta)
+      : 0;
+
+    return {
+      ...created,
+      currentBalance,
+    };
   }
 
   async updateBank(id: string, payload: UpdateBankDTO, updatedBy: string): Promise<BankRecord> {

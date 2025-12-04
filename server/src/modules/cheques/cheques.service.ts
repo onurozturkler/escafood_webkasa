@@ -34,13 +34,14 @@ function isStatusTransitionAllowed(
   }
 
   if (direction === 'ALACAK') {
-    // For ALACAK cheques:
-    // KASADA → BANKADA_TAHSILDE
-    // KASADA → TAHSIL_EDILDI
-    // BANKADA_TAHSILDE → TAHSIL_EDILDI
+    // For ALACAK cheques (customer cheques):
+    // KASADA → BANKADA_TAHSILDE (sent to bank for collection)
+    // KASADA → TAHSIL_EDILDI (collected directly into cash)
+    // KASADA → ODEMEDE (used to pay a supplier - customer cheque given to supplier)
+    // BANKADA_TAHSILDE → TAHSIL_EDILDI (collected from bank)
     const allowedTransitions: ChequeStatus[] = [];
     if (currentStatus === 'KASADA') {
-      allowedTransitions.push('BANKADA_TAHSILDE', 'TAHSIL_EDILDI');
+      allowedTransitions.push('BANKADA_TAHSILDE', 'TAHSIL_EDILDI', 'ODEMEDE');
     } else if (currentStatus === 'BANKADA_TAHSILDE') {
       allowedTransitions.push('TAHSIL_EDILDI');
     }

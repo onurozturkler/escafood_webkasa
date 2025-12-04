@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { BankMaster } from '../models/bank';
 import { Cheque } from '../models/cheque';
 import { CreditCard } from '../models/card';
+import { Supplier } from '../models/supplier';
 import { formatTl, formatTlPlain, parseTl } from '../utils/money';
 import { isoToDisplay, todayIso } from '../utils/date';
 import { apiGet, apiPost } from '../utils/api';
+import SearchableSelect from '../components/SearchableSelect';
 
 export type BankaNakitCikisTuru =
   | 'VIRMAN'
@@ -25,12 +27,14 @@ export interface BankaNakitCikisFormValues {
   hedefBankaId?: string;
   islemTuru: BankaNakitCikisTuru;
   muhatap?: string;
+  muhatapId?: string; // Supplier ID for supplier payments
   faturaMuhatabi?: FaturaMuhatap;
   aciklama?: string;
   tutar: number;
   kaydedenKullanici: string;
   cekId?: string | null;
   krediKartiId?: string | null;
+  supplierId?: string | null; // Supplier ID for linking transaction
 }
 
 interface Props {
@@ -41,6 +45,7 @@ interface Props {
   banks: BankMaster[];
   cheques: Cheque[];
   creditCards: CreditCard[];
+  suppliers: Supplier[];
 }
 
 const turLabels: Record<BankaNakitCikisTuru, string> = {
@@ -71,15 +76,18 @@ export default function BankaNakitCikis({
   banks,
   cheques,
   creditCards,
+  suppliers,
 }: Props) {
   const safeBanks: BankMaster[] = Array.isArray(banks) ? banks : [];
   const safeCreditCards: CreditCard[] = Array.isArray(creditCards) ? creditCards : [];
+  const safeSuppliers: Supplier[] = Array.isArray(suppliers) ? suppliers : [];
   const chequeList: Cheque[] = Array.isArray(cheques) ? cheques : [];
   const [islemTarihiIso, setIslemTarihiIso] = useState(todayIso());
   const [bankaId, setBankaId] = useState('');
   const [hedefBankaId, setHedefBankaId] = useState('');
   const [islemTuru, setIslemTuru] = useState<BankaNakitCikisTuru>('VIRMAN');
   const [muhatap, setMuhatap] = useState('');
+  const [muhatapId, setMuhatapId] = useState('');
   const [faturaMuhatabi, setFaturaMuhatabi] = useState<FaturaMuhatap>('ELEKTRIK');
   const [aciklama, setAciklama] = useState('');
   const [tutarText, setTutarText] = useState('');
@@ -95,18 +103,28 @@ export default function BankaNakitCikis({
     [chequeList]
   );
 
+  // Fix Bug 1: Show all active credit cards, not just those with krediKartiVarMi flag
   const eligibleCards = useMemo(
-    () => safeCreditCards.filter((c) => safeBanks.find((b) => b.id === c.bankaId)?.krediKartiVarMi),
-    [safeBanks, safeCreditCards]
+    () => safeCreditCards.filter((c) => c.aktifMi),
+    [safeCreditCards]
   );
 
   const krediKartiOptions = useMemo(
     () =>
-      eligibleCards.map((c) => ({
-        id: c.id,
-        label: `${c.kartAdi} – ${safeBanks.find((b) => b.id === c.bankaId)?.bankaAdi ?? '-'}`,
-      })),
+      eligibleCards.map((c) => {
+        const bank = safeBanks.find((b) => b.id === c.bankaId);
+        return {
+          id: c.id,
+          label: `${c.kartAdi}${bank ? ` – ${bank.bankaAdi}` : ''}`,
+        };
+      }),
     [eligibleCards, safeBanks]
+  );
+
+  // Fix Bug 2: Supplier options for supplier payments
+  const supplierOptions = useMemo(
+    () => safeSuppliers.filter((s) => s.aktifMi).map((s) => ({ id: s.id, label: `${s.kod} - ${s.ad}` })),
+    [safeSuppliers]
   );
 
   useEffect(() => {
@@ -116,6 +134,7 @@ export default function BankaNakitCikis({
       setHedefBankaId('');
       setIslemTuru('VIRMAN');
       setMuhatap('');
+      setMuhatapId('');
       setFaturaMuhatabi('ELEKTRIK');
       setAciklama('');
       setTutarText('');
@@ -156,7 +175,12 @@ export default function BankaNakitCikis({
     }
     const resolvedBankaId = isCardPayment && selectedCard ? selectedCard.bankaId : bankaId;
     if (!islemTarihiIso || !resolvedBankaId || !islemTuru || tutar <= 0) return;
-    if (muhatapRequired && muhatap.trim().length < 3) return;
+    // Fix Bug 2: For supplier payments, require supplier selection
+    if (islemTuru === 'TEDARIKCI_ODEME' && !muhatapId) {
+      alert('Tedarikçi seçmelisiniz.');
+      return;
+    }
+    if (muhatapRequired && !muhatapId && muhatap.trim().length < 3) return;
     if (faturaRequired && !faturaMuhatabi) return;
     if (hedefRequired && !hedefBankaId) return;
     if (isCardPayment && !krediKartiId) return;
@@ -185,23 +209,32 @@ export default function BankaNakitCikis({
       lines.push("UYARI: Geçmiş tarihli bir işlem kaydediyorsunuz. Bu işlem sadece Kasa Defteri'nde görünecektir.");
     }
     if (!window.confirm(lines.join('\n'))) return;
+    // Fix Bug 2: Get supplier name for counterparty if supplier is selected
+    const selectedSupplier = islemTuru === 'TEDARIKCI_ODEME' && muhatapId 
+      ? safeSuppliers.find((s) => s.id === muhatapId) 
+      : undefined;
+    const finalMuhatap = islemTuru === 'CEK_ODEME'
+      ? selectedCheque?.lehtar || undefined
+      : islemTuru === 'TEDARIKCI_ODEME' && selectedSupplier
+      ? `${selectedSupplier.kod} - ${selectedSupplier.ad}`
+      : muhatapRequired || muhatap
+      ? muhatap
+      : undefined;
+
     onSaved({
       islemTarihiIso,
       bankaId: resolvedBankaId,
       hedefBankaId: hedefRequired ? hedefBankaId : undefined,
       islemTuru,
-      muhatap:
-        islemTuru === 'CEK_ODEME'
-          ? selectedCheque?.lehtar || undefined
-          : muhatapRequired || muhatap
-          ? muhatap
-          : undefined,
+      muhatap: finalMuhatap,
+      muhatapId: islemTuru === 'TEDARIKCI_ODEME' ? muhatapId : undefined,
       faturaMuhatabi: faturaRequired ? faturaMuhatabi : undefined,
       aciklama: aciklama || undefined,
       tutar,
       kaydedenKullanici: currentUserEmail,
       cekId: islemTuru === 'CEK_ODEME' ? selectedChequeId : null,
       krediKartiId: isCardPayment ? krediKartiId : null,
+      supplierId: islemTuru === 'TEDARIKCI_ODEME' ? muhatapId : null,
     });
   };
 
@@ -325,9 +358,26 @@ export default function BankaNakitCikis({
               </select>
             </div>
           )}
-          {!isCardPayment && islemTuru !== 'CEK_ODEME' && (
+          {/* Fix Bug 2: Supplier dropdown for supplier payments */}
+          {islemTuru === 'TEDARIKCI_ODEME' && (
             <div className="space-y-2">
-              <label>Muhatap</label>
+              <label>Tedarikçi <span className="text-rose-600">*</span></label>
+              <SearchableSelect
+                valueId={muhatapId || null}
+                onChange={(id) => {
+                  setMuhatapId(id || '');
+                  const supplier = safeSuppliers.find((s) => s.id === id);
+                  setMuhatap(supplier ? `${supplier.kod} - ${supplier.ad}` : '');
+                  setDirty(true);
+                }}
+                options={supplierOptions}
+                placeholder="Tedarikçi seçiniz"
+              />
+            </div>
+          )}
+          {!isCardPayment && islemTuru !== 'CEK_ODEME' && islemTuru !== 'TEDARIKCI_ODEME' && (
+            <div className="space-y-2">
+              <label>Muhatap{muhatapRequired ? <span className="text-rose-600"> *</span> : ''}</label>
               <input
                 className="w-full"
                 value={muhatap}

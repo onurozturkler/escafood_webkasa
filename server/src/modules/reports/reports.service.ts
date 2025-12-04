@@ -66,7 +66,7 @@ export class ReportsService {
     const pageSize = query.pageSize || 50;
     const skip = (page - 1) * pageSize;
 
-    // Determine sort order - Prisma requires orderBy to be an array
+    // Fix Bug 8: Default sort order is ascending by date (oldest to newest)
     const sortKey = query.sortKey || 'isoDate';
     const sortDir = query.sortDir || 'asc';
     
@@ -83,12 +83,27 @@ export class ReportsService {
       orderBy.push({ isoDate: 'asc' });
     }
 
+    // Fix Bug 4: Include bank and credit card relations for display
     const [transactions, totalCount] = await Promise.all([
       prisma.transaction.findMany({
         where,
         skip,
         take: pageSize,
         orderBy,
+        include: {
+          bank: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          creditCard: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
       }),
       prisma.transaction.count({ where }),
     ]);
@@ -119,6 +134,7 @@ export class ReportsService {
         ? Number(allTransactions[allTransactions.length - 1].balanceAfter)
         : openingBalance + totalIncoming - totalOutgoing;
 
+    // Fix Bug 4: Include bank and credit card info in response
     return {
       items: transactions.map((tx) => ({
         id: tx.id,
@@ -131,6 +147,9 @@ export class ReportsService {
         incoming: Number(tx.incoming),
         outgoing: Number(tx.outgoing),
         balanceAfter: Number(tx.balanceAfter),
+        bankId: tx.bankId,
+        bankName: tx.bank?.name || null,
+        creditCardId: tx.creditCardId,
       })),
       totalCount,
       totalIncoming,
@@ -183,12 +202,21 @@ export class ReportsService {
     }
     // 'HEPSI' means no source filter
 
+    // Fix Bug 4: Include bank relation for bank name display
     const transactions = await prisma.transaction.findMany({
       where,
       orderBy: [
         { isoDate: 'asc' },
         { createdAt: 'asc' },
       ],
+      include: {
+        bank: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
     });
 
     const girisler: NakitAkisResponse['girisler'] = [];
@@ -198,6 +226,7 @@ export class ReportsService {
       const giris = this.getNakitAkisGiris(tx);
       const cikis = this.getNakitAkisCikis(tx);
 
+      // Fix Bug 4: Include bank and credit card info in cash flow report
       if (giris > 0) {
         girisler.push({
           isoDate: tx.isoDate,
@@ -206,6 +235,9 @@ export class ReportsService {
           counterparty: tx.counterparty,
           description: tx.description,
           amount: giris,
+          bankId: tx.bankId,
+          bankName: tx.bank?.name || null,
+          creditCardId: tx.creditCardId,
         });
       }
 
@@ -217,6 +249,9 @@ export class ReportsService {
           counterparty: tx.counterparty,
           description: tx.description,
           amount: cikis,
+          bankId: tx.bankId,
+          bankName: tx.bank?.name || null,
+          creditCardId: tx.creditCardId,
         });
       }
     }

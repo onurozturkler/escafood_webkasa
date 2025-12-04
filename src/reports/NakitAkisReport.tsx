@@ -222,8 +222,21 @@ export function NakitAkisReport({ transactions, banks, onBackToDashboard }: Prop
               {girisler.map((tx) => {
                 const bankDelta = tx.bankDelta || 0;
                 const amount = resolveIncomingAmount(tx);
-                const kaynak =
-                  bankDelta > 0 && tx.bankId ? resolveBankName(tx.bankId) : getTransactionSourceLabel(tx.source);
+                // Fix Bug 5: Use bankName from backend if available, otherwise lookup from banks
+                let kaynak = getTransactionSourceLabel(tx.source);
+                if (tx.bankId) {
+                  const bankName = (tx as any).bankName || resolveBankName(tx.bankId);
+                  if (bankName && bankName !== 'Banka') {
+                    kaynak = bankName;
+                  } else if (tx.source === 'BANKA') {
+                    kaynak = resolveBankName(tx.bankId);
+                  }
+                }
+                // Fix Bug 5: Show credit card name if available
+                const creditCardName = (tx as any).creditCardName;
+                if (creditCardName) {
+                  kaynak = `${kaynak} - ${creditCardName}`;
+                }
                 return (
                   <tr key={tx.id} className="border-t">
                     <td className="px-3 py-2">{isoToDisplay(tx.isoDate)}</td>
@@ -265,12 +278,20 @@ export function NakitAkisReport({ transactions, banks, onBackToDashboard }: Prop
               {cikislar.map((tx) => {
                 const bankDelta = tx.bankDelta || 0;
                 const amount = resolveOutgoingAmount(tx);
-                const kaynak =
-                  tx.type === 'POS_KOMISYONU'
-                    ? 'POS'
-                    : bankDelta < 0 && tx.bankId
-                    ? resolveBankName(tx.bankId)
-                    : getTransactionSourceLabel(tx.source);
+                // Fix Bug 5: Use bankName from backend if available, otherwise lookup from banks
+                let kaynak = getTransactionSourceLabel(tx.source);
+                if (tx.type === 'POS_KOMISYONU' && tx.bankId) {
+                  const bankName = (tx as any).bankName || resolveBankName(tx.bankId);
+                  kaynak = `POS (${bankName})`;
+                } else if (tx.source === 'BANKA' && tx.bankId) {
+                  const bankName = (tx as any).bankName || resolveBankName(tx.bankId);
+                  kaynak = bankName;
+                }
+                // Fix Bug 5: Show credit card name if available
+                const creditCardName = (tx as any).creditCardName;
+                if (creditCardName) {
+                  kaynak = `${kaynak} - ${creditCardName}`;
+                }
                 return (
                   <tr key={tx.id} className="border-t">
                     <td className="px-3 py-2">{isoToDisplay(tx.isoDate)}</td>

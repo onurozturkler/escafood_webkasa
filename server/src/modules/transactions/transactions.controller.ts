@@ -16,8 +16,18 @@ function handleError(res: Response, error: unknown) {
     return res.status(400).json({ message: 'Validation error', details: error.issues });
   }
 
-  // Prisma errors and other runtime errors should be 500
+  // Check for client errors (e.g., bank not found)
   if (error instanceof Error) {
+    // Check if this is a client error (marked by service layer)
+    if ((error as any).isClientError || (error as any).statusCode === 400) {
+      console.error('Client error:', error.message);
+      return res.status(400).json({ 
+        message: error.message || 'Bad request',
+        error: error.message 
+      });
+    }
+
+    // Prisma errors and other runtime errors should be 500
     // Log the error for debugging (in production, use proper logging)
     console.error('Transaction error:', error.message);
     console.error('Stack:', error.stack);
@@ -38,15 +48,27 @@ function handleError(res: Response, error: unknown) {
 export class TransactionsController {
   async create(req: Request, res: Response) {
     try {
-      console.log('CREATE TRANSACTION REQUEST BODY >>>', JSON.stringify(req.body, null, 2));
+      console.log('=== CREATE TRANSACTION CONTROLLER ===');
+      console.log('Raw request body:', JSON.stringify(req.body, null, 2));
+      console.log('Request headers:', JSON.stringify(req.headers, null, 2));
+      
       const payload = createTransactionSchema.parse(req.body);
-      console.log('CREATE TRANSACTION VALIDATED PAYLOAD >>>', JSON.stringify(payload, null, 2));
+      console.log('Validated payload:', JSON.stringify(payload, null, 2));
+      
       const createdBy = getUserId(req);
-      console.log('CREATE TRANSACTION CREATED BY >>>', createdBy);
+      console.log('Created by user ID:', createdBy);
+      
       const transaction = await service.createTransaction(payload, createdBy);
+      console.log('Transaction created successfully, returning 201');
       res.status(201).json(transaction);
     } catch (error) {
-      console.error('CREATE TRANSACTION ERROR >>>', error);
+      console.error('=== CREATE TRANSACTION ERROR ===');
+      console.error('Error type:', error?.constructor?.name);
+      console.error('Error message:', error instanceof Error ? error.message : String(error));
+      console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+      if (error instanceof Error && 'issues' in error) {
+        console.error('Validation issues:', (error as any).issues);
+      }
       handleError(res, error);
     }
   }

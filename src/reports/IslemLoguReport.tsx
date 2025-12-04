@@ -288,12 +288,25 @@ export function IslemLoguReport({ transactions, banks, currentUserEmail, onBackT
             {filtered.map((tx) => {
               const bankIn = tx.bankDelta && tx.bankDelta > 0 ? tx.bankDelta : 0;
               const bankOut = tx.bankDelta && tx.bankDelta < 0 ? Math.abs(tx.bankDelta) : 0;
+              // Fix Bug 5: Show bank name for bank transactions
+              let sourceLabel = getTransactionSourceLabel(tx.source);
+              if (tx.bankId) {
+                const bank = banks.find((b) => b.id === tx.bankId);
+                if (bank) {
+                  sourceLabel = `${sourceLabel} (${bank.bankaAdi})`;
+                }
+              }
+              // Fix Bug 5: Show credit card name if available
+              const creditCardName = (tx as any).creditCardName;
+              if (creditCardName) {
+                sourceLabel = `${sourceLabel} - ${creditCardName}`;
+              }
               return (
                 <tr key={tx.id} className="border-t">
                   <td className="px-3 py-2">{isoToDisplay(tx.isoDate)}</td>
                   <td className="px-3 py-2">{formatTime(tx.createdAtIso)}</td>
                   <td className="px-3 py-2">{getTransactionTypeLabel(tx.type)}</td>
-                  <td className="px-3 py-2">{getTransactionSourceLabel(tx.source)}</td>
+                  <td className="px-3 py-2">{sourceLabel}</td>
                   <td className="px-3 py-2">{tx.counterparty}</td>
                   <td className="px-3 py-2 truncate max-w-[160px]" title={tx.description}>
                     {tx.description}

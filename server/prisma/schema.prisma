@@ -122,19 +122,25 @@ model Bank {
 }
 
 model CreditCard {
-  id         String    @id @default(uuid())
-  name       String
-  bankId     String?
-  limit      Decimal?  @db.Decimal(18, 2)
-  closingDay Int?
-  dueDay     Int?
-  isActive   Boolean   @default(true)
-  createdAt  DateTime  @default(now())
-  createdBy  String
-  updatedAt  DateTime?
-  updatedBy  String?
-  deletedAt  DateTime?
-  deletedBy  String?
+  id                      String    @id @default(uuid())
+  name                    String
+  bankId                  String?
+  limit                   Decimal?  @db.Decimal(18, 2)
+  closingDay              Int?
+  dueDay                  Int?
+  // Fix Bug 7: Installment configuration fields (minimal, stored on card itself)
+  installmentPrincipal    Decimal?  @db.Decimal(18, 2) // Total principal amount for installments
+  installmentInterestRate Decimal?  @db.Decimal(18, 4) // Monthly interest rate (e.g., 0.015 for 1.5%)
+  installmentBsmvRate     Decimal?  @db.Decimal(18, 4) // BSMV rate (e.g., 0.05 for 5%)
+  installmentCount        Int? // Number of installments
+  firstInstallmentDate    String? // ISO date string (YYYY-MM-DD)
+  isActive                Boolean   @default(true)
+  createdAt               DateTime  @default(now())
+  createdBy               String
+  updatedAt               DateTime?
+  updatedBy               String?
+  deletedAt               DateTime?
+  deletedBy               String?
 
   bank         Bank?                 @relation(fields: [bankId], references: [id])
   operations   CreditCardOperation[]

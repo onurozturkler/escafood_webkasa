@@ -14,8 +14,9 @@ const optionalStringCreate = z.preprocess(
   z.string().max(500).nullable().optional()
 );
 
-// Helper to normalize bankId: accept string (UUID), number, empty string, null, undefined
+// Helper to normalize bankId: accept string (UUID), empty string, null, undefined
 // Transform to valid UUID string or null
+// Bank.id is String @id @default(uuid()) in schema.prisma
 const bankIdNormalizer = z.preprocess(
   (val) => {
     // Handle null, undefined, empty string
@@ -23,7 +24,7 @@ const bankIdNormalizer = z.preprocess(
       return null;
     }
     
-    // Handle string values
+    // Handle string values - validate UUID format
     if (typeof val === 'string') {
       const trimmed = val.trim();
       if (!trimmed) {
@@ -34,11 +35,11 @@ const bankIdNormalizer = z.preprocess(
       if (uuidRegex.test(trimmed)) {
         return trimmed;
       }
-      // Invalid UUID format - normalize to null
+      // Invalid UUID format - return null (will be caught by superRefine for bank types)
       return null;
     }
     
-    // Handle number values (not valid UUIDs)
+    // Handle number values - convert to null (Bank.id is UUID string, not number)
     if (typeof val === 'number') {
       return null;
     }
@@ -46,10 +47,11 @@ const bankIdNormalizer = z.preprocess(
     // For any other type, return null
     return null;
   },
-  z.union([z.string().uuid(), z.null()]).optional()
+  z.union([z.string().uuid(), z.null()])
 );
 
 // Helper to normalize creditCardId (same logic as bankId)
+// CreditCard.id is String @id @default(uuid()) in schema.prisma
 const creditCardIdNormalizer = z.preprocess(
   (val) => {
     // Handle null, undefined, empty string
@@ -57,7 +59,7 @@ const creditCardIdNormalizer = z.preprocess(
       return null;
     }
     
-    // Handle string values
+    // Handle string values - validate UUID format
     if (typeof val === 'string') {
       const trimmed = val.trim();
       if (!trimmed) {
@@ -71,14 +73,14 @@ const creditCardIdNormalizer = z.preprocess(
       return null;
     }
     
-    // Handle number values
+    // Handle number values - convert to null (CreditCard.id is UUID string, not number)
     if (typeof val === 'number') {
       return null;
     }
     
     return null;
   },
-  z.union([z.string().uuid(), z.null()]).optional()
+  z.union([z.string().uuid(), z.null()])
 );
 
 export const createTransactionSchema = z
@@ -98,8 +100,8 @@ export const createTransactionSchema = z
     displayIncoming: z.number().nonnegative().nullable().optional(),
     displayOutgoing: z.number().nonnegative().nullable().optional(),
     cashAccountId: optionalUuidStringCreate,
-    bankId: bankIdNormalizer,
-    creditCardId: creditCardIdNormalizer,
+    bankId: bankIdNormalizer.optional(),
+    creditCardId: creditCardIdNormalizer.optional(),
     chequeId: optionalUuidStringCreate,
     customerId: optionalUuidStringCreate,
     supplierId: optionalUuidStringCreate,
@@ -162,7 +164,10 @@ export const createTransactionSchema = z
     }
   )
   .superRefine((data, ctx) => {
-    // Define bank-related transaction types that require bankId
+    // Fix Bug 4: Bank-related transactions require bankId
+    // This includes:
+    // 1. Specific bank transaction types (BANKA_HAVALE_GIRIS, etc.)
+    // 2. NAKIT_TAHSILAT/NAKIT_ODEME when source = BANKA (Bank Cash In/Out)
     const bankRequiredTypes: DailyTransactionType[] = [
       'BANKA_HAVALE_GIRIS',
       'BANKA_HAVALE_CIKIS',
@@ -174,18 +179,35 @@ export const createTransactionSchema = z
     ];
 
     const isBankType = bankRequiredTypes.includes(data.type);
+    // Fix Bug 4: Also require bankId for NAKIT_TAHSILAT/NAKIT_ODEME when source = BANKA
+    const isBankCashInOut = (data.type === 'NAKIT_TAHSILAT' || data.type === 'NAKIT_ODEME') && data.source === 'BANKA';
 
-    // For bank-related types, bankId is required (must be a valid UUID string, not null)
-    if (isBankType && !data.bankId) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['bankId'],
-        message: 'Bankalı işlemde bankId zorunlu.',
-      });
+    // For bank-related types or bank cash in/out, bankId is required
+    if (isBankType || isBankCashInOut) {
+      if (!data.bankId || data.bankId === null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['bankId'],
+          message: 'Bankalı işlemde bankId zorunlu.',
+        });
+      } else if (typeof data.bankId === 'string') {
+        // Validate UUID format (redundant check after preprocess, but ensures safety)
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (!uuidRegex.test(data.bankId)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['bankId'],
+            message: 'bankId geçerli bir UUID formatında olmalıdır.',
+          });
+        }
+      }
     }
   })
   .transform((data) => {
-    // Define bank-related transaction types that require bankId
+    // Fix Bug 4: Bank-related transactions require bankId
+    // This includes:
+    // 1. Specific bank transaction types (BANKA_HAVALE_GIRIS, etc.)
+    // 2. NAKIT_TAHSILAT/NAKIT_ODEME when source = BANKA (Bank Cash In/Out)
     const bankRequiredTypes: DailyTransactionType[] = [
       'BANKA_HAVALE_GIRIS',
       'BANKA_HAVALE_CIKIS',
@@ -197,9 +219,11 @@ export const createTransactionSchema = z
     ];
 
     const isBankType = bankRequiredTypes.includes(data.type);
+    // Fix Bug 4: Also preserve bankId for NAKIT_TAHSILAT/NAKIT_ODEME when source = BANKA
+    const isBankCashInOut = (data.type === 'NAKIT_TAHSILAT' || data.type === 'NAKIT_ODEME') && data.source === 'BANKA';
 
-    // For non-bank types, force bankId to null (ignore any accidental value)
-    if (!isBankType) {
+    // For non-bank types (and not bank cash in/out), force bankId to null
+    if (!isBankType && !isBankCashInOut) {
       return { ...data, bankId: null };
     }
 

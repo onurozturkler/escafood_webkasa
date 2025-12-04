@@ -7,6 +7,7 @@ const baseBankSchema = z
     name: z.string().trim().min(1, 'name is required'),
     accountNo: z.string().trim().optional().nullable(),
     iban: z.string().trim().optional().nullable(),
+    initialBalance: z.number().optional().default(0), // Opening balance for the bank
   })
   .strict();
 

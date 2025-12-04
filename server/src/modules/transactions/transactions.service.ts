@@ -53,90 +53,101 @@ export class TransactionsService {
     const outgoing = data.outgoing || 0;
     const balanceAfter = await calculateBalanceAfter(data.isoDate, incoming, outgoing);
 
-    // Normalize bankId: ensure it's a valid UUID string or null
-    // Never send empty string, undefined, 0, or invalid values to Prisma
-    let normalizedBankId: string | null = null;
-    if (data.bankId) {
-      if (typeof data.bankId === 'string' && data.bankId.trim()) {
-        const trimmed = data.bankId.trim();
-        // Validate UUID format
-        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-        if (uuidRegex.test(trimmed)) {
-          normalizedBankId = trimmed;
-        }
-      }
-    }
+    // Data has already been validated by Zod schema, so bankId and creditCardId are either
+    // valid UUID strings or null. We just need to ensure they're properly typed.
+    const bankId: string | null = data.bankId && typeof data.bankId === 'string' ? data.bankId : null;
+    const creditCardId: string | null = data.creditCardId && typeof data.creditCardId === 'string' ? data.creditCardId : null;
 
-    // Normalize creditCardId similarly
-    let normalizedCreditCardId: string | null = null;
-    if (data.creditCardId) {
-      if (typeof data.creditCardId === 'string' && data.creditCardId.trim()) {
-        const trimmed = data.creditCardId.trim();
-        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-        if (uuidRegex.test(trimmed)) {
-          normalizedCreditCardId = trimmed;
-        }
-      }
-    }
-
-    // If bankId is provided, verify the bank exists
-    if (normalizedBankId) {
+    // If bankId is provided, verify the bank exists (defensive check)
+    if (bankId) {
       const bank = await prisma.bank.findUnique({
-        where: { id: normalizedBankId },
-        select: { id: true, deletedAt: true },
+        where: { id: bankId },
+        select: { id: true, name: true, deletedAt: true },
       });
-      if (!bank || bank.deletedAt) {
-        throw new Error(`Bank with ID ${normalizedBankId} not found or has been deleted`);
+      if (!bank) {
+        // Log available banks for debugging
+        const allBanks = await prisma.bank.findMany({
+          where: { deletedAt: null },
+          select: { id: true, name: true },
+          take: 10,
+        });
+        console.error(`Bank with ID ${bankId} not found. Available banks:`, allBanks.map(b => ({ id: b.id, name: b.name })));
+        
+        // Create a custom error that can be identified as a client error (400)
+        const error = new Error(`Bank with ID ${bankId} not found. Please select a valid bank.`);
+        (error as any).statusCode = 400;
+        (error as any).isClientError = true;
+        throw error;
       }
+      if (bank.deletedAt) {
+        const error = new Error(`Bank "${bank.name}" (ID: ${bankId}) has been deleted`);
+        (error as any).statusCode = 400;
+        (error as any).isClientError = true;
+        throw error;
+      }
+      console.log(`Bank verified: ${bank.name} (${bank.id})`);
     }
 
-    // Log for debugging
-    console.log('CREATE TRANSACTION DATA >>>', {
+    // Log for debugging - detailed logging
+    console.log('=== CREATE TRANSACTION SERVICE ===');
+    console.log('Input data:', JSON.stringify(data, null, 2));
+    console.log('bankId:', bankId);
+    console.log('creditCardId:', creditCardId);
+    console.log('Incoming:', incoming, 'Outgoing:', outgoing, 'BankDelta:', data.bankDelta || 0);
+    console.log('Balance after:', balanceAfter);
+    console.log('Created by:', createdBy);
+
+    // Prepare Prisma data - ensure all FKs are either valid UUID strings or null
+    // Data has already been validated by Zod, so we can trust the types
+    const prismaData = {
+      isoDate: data.isoDate,
+      documentNo: data.documentNo ?? null,
       type: data.type,
       source: data.source,
-      bankId: data.bankId,
-      normalizedBankId,
-      creditCardId: data.creditCardId,
-      normalizedCreditCardId,
-      incoming,
-      outgoing,
-      bankDelta: data.bankDelta || 0,
-    });
+      counterparty: data.counterparty ?? null,
+      description: data.description ?? null,
+      incoming: incoming,
+      outgoing: outgoing,
+      bankDelta: data.bankDelta ?? 0,
+      displayIncoming: data.displayIncoming ?? null,
+      displayOutgoing: data.displayOutgoing ?? null,
+      balanceAfter: balanceAfter,
+      cashAccountId: data.cashAccountId ?? null,
+      bankId: bankId, // Already validated as UUID string or null by Zod
+      creditCardId: creditCardId, // Already validated as UUID string or null by Zod
+      chequeId: data.chequeId ?? null,
+      customerId: data.customerId ?? null,
+      supplierId: data.supplierId ?? null,
+      attachmentId: data.attachmentId ?? null,
+      createdBy,
+    };
+
+    console.log('Prisma create data:', JSON.stringify(prismaData, null, 2));
 
     try {
       const transaction = await prisma.transaction.create({
-        data: {
-          isoDate: data.isoDate,
-          documentNo: data.documentNo || null,
-          type: data.type,
-          source: data.source,
-          counterparty: data.counterparty || null,
-          description: data.description || null,
-          incoming: incoming,
-          outgoing: outgoing,
-          bankDelta: data.bankDelta || 0,
-          displayIncoming: data.displayIncoming || null,
-          displayOutgoing: data.displayOutgoing || null,
-          balanceAfter: balanceAfter,
-          cashAccountId: data.cashAccountId || null,
-          bankId: normalizedBankId,
-          creditCardId: normalizedCreditCardId,
-          chequeId: data.chequeId || null,
-          customerId: data.customerId || null,
-          supplierId: data.supplierId || null,
-          attachmentId: data.attachmentId || null,
-          createdBy,
-        },
+        data: prismaData,
       });
 
+      console.log('Transaction created successfully:', transaction.id);
       return this.mapToDto(transaction);
     } catch (error: any) {
       // Handle Prisma foreign key constraint errors
       if (error?.code === 'P2003') {
         const field = error.meta?.field_name || 'foreign key';
-        console.error('Foreign key constraint violation:', field, error.meta);
-        throw new Error(`Invalid ${field}: The referenced record does not exist`);
+        const target = error.meta?.target || 'unknown';
+        console.error('=== FOREIGN KEY CONSTRAINT VIOLATION ===');
+        console.error('Field:', field);
+        console.error('Target:', target);
+        console.error('Full error:', JSON.stringify(error.meta, null, 2));
+        console.error('Prisma data that failed:', JSON.stringify(prismaData, null, 2));
+        throw new Error(`Invalid ${field} (${target}): The referenced record does not exist. bankId=${prismaData.bankId}`);
       }
+      // Log other Prisma errors
+      console.error('=== PRISMA ERROR ===');
+      console.error('Error code:', error?.code);
+      console.error('Error message:', error?.message);
+      console.error('Full error:', error);
       // Re-throw other errors
       throw error;
     }
@@ -261,9 +272,9 @@ export class TransactionsService {
     const pageSize = query.pageSize || 50;
     const skip = (page - 1) * pageSize;
 
-    // Determine sort order - Prisma requires orderBy to be an array
+    // Fix Bug 8: Default sort order is ascending by date (oldest to newest)
     const sortKey = query.sortKey || 'isoDate';
-    const sortDir = query.sortDir || 'desc';
+    const sortDir = query.sortDir || 'asc';
     
     // Build orderBy array based on sortKey
     const orderBy: any[] = [];

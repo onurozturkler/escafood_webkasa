@@ -74,8 +74,14 @@ export default function BankaNakitGiris({
       setAciklama('');
       setTutar(null);
       setDirty(false);
+      
+      // Log available banks when form opens for debugging
+      console.log('BankaNakitGiris form opened. Available banks:', banks.map(b => ({ id: b.id, name: b.hesapAdi })));
+      if (banks.length === 0) {
+        console.warn('No banks available. Please create banks in settings or refresh the page.');
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, banks]);
 
   const muhatapRequired = useMemo(
     () => ['MUSTERI_EFT', 'TEDARIKCI_EFT', 'ORTAK_EFT_GELEN'].includes(islemTuru),
@@ -88,8 +94,21 @@ export default function BankaNakitGiris({
   };
 
   const handleSave = () => {
-    if (!islemTarihiIso || !bankaId || !islemTuru || !tutar || tutar <= 0) return;
+    if (!islemTarihiIso || !bankaId || !islemTuru || !tutar || tutar <= 0) {
+      if (!bankaId) {
+        alert('Banka seçmelisiniz.');
+      }
+      return;
+    }
     if (muhatapRequired && !muhatap) return;
+    
+    // Validate that the selected bank exists in the banks array
+    const selectedBank = banks.find((b) => b.id === bankaId);
+    if (!selectedBank) {
+      alert('Seçilen banka geçersiz. Lütfen geçerli bir banka seçin.');
+      return;
+    }
+    
     const today = todayIso();
     if (islemTarihiIso > today) {
       alert('Gelecek tarihli işlem kaydedilemez.');
@@ -101,7 +120,7 @@ export default function BankaNakitGiris({
       (selected && `${selected.kod} - ${selected.ad}`) ||
       muhatap ||
       '-';
-    const bankaName = banks.find((b) => b.id === bankaId)?.hesapAdi || '-';
+    const bankaName = selectedBank.hesapAdi;
     const baseMessage = [
       'Banka nakit giriş kaydedilsin mi?',
       '',

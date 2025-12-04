@@ -20,9 +20,15 @@ export default function KrediKartiIzlemeModal({ isOpen, onClose, creditCards, ba
       .map((card) => {
         const bank = banks.find((b) => b.id === card.bankaId);
         const { daysLeft, dueDisplay } = getCreditCardNextDue(card);
-        const limit = card.limit ?? card.kartLimit ?? 0;
+        // Fix Bug 6: Use limit from card (from backend, correctly calculated)
+        // card.limit is the primary field, kartLimit is fallback
+        // Preserve null if limit is not set (don't convert to 0)
+        const limit = card.limit !== null && card.limit !== undefined ? card.limit : (card.kartLimit ?? null);
+        // Use guncelBorc from card (should be from backend, calculated from operations)
         const guncelBorc = card.guncelBorc || 0;
-        const available = limit - guncelBorc;
+        // Fix Bug 6: Calculate available limit: limit - currentDebt (NOT currentDebt - limit)
+        // If limit is null, availableLimit should also be null
+        const available = limit !== null ? limit - guncelBorc : null;
         return {
           card,
           bankName: bank?.bankaAdi || '-',
@@ -74,9 +80,9 @@ export default function KrediKartiIzlemeModal({ isOpen, onClose, creditCards, ba
                   <tr key={card.id} className="border-b last:border-0">
                     <td className="py-2 px-2">{card.kartAdi}</td>
                     <td className="py-2 px-2">{bankName}</td>
-                    <td className="py-2 px-2">{formatTl(limit)}</td>
+                    <td className="py-2 px-2">{limit !== null ? formatTl(limit) : '-'}</td>
                     <td className="py-2 px-2">{formatTl(card.guncelBorc)}</td>
-                    <td className="py-2 px-2">{formatTl(available)}</td>
+                    <td className="py-2 px-2">{available !== null ? formatTl(available) : '-'}</td>
                     <td className="py-2 px-2">{formatTl(card.sonEkstreBorcu)}</td>
                     <td className="py-2 px-2">{card.hesapKesimGunu}</td>
                     <td className="py-2 px-2">{card.sonOdemeGunu}</td>

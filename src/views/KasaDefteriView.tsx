@@ -14,6 +14,16 @@ interface KasaDefteriViewProps {
   onBackToDashboard: () => void;
 }
 
+// Fix Bug 5: Helper to get bank name from transaction (prefer bankName from backend, fallback to local lookup)
+function getBankName(tx: DailyTransaction, banks: Array<{ id: string; name: string }>): string | null {
+  // Prefer bankName from backend if available
+  if ((tx as any).bankName) return (tx as any).bankName;
+  // Fallback to local lookup
+  if (!tx.bankId) return null;
+  const bank = banks.find((b) => b.id === tx.bankId);
+  return bank?.name || null;
+}
+
 type SortKey = 'isoDate' | 'documentNo' | 'type' | 'counterparty' | 'incoming' | 'outgoing' | 'balanceAfter';
 type SortDir = 'asc' | 'desc';
 
@@ -57,6 +67,7 @@ const sorters: Record<SortKey, (a: DailyTransaction, b: DailyTransaction) => num
 
 export default function KasaDefteriView({ onBackToDashboard }: KasaDefteriViewProps) {
   const [transactions, setTransactions] = useState<DailyTransaction[]>([]);
+  const [banks, setBanks] = useState<Array<{ id: string; name: string }>>([]); // Fix Bug 4: Banks for bank name display
   const [loading, setLoading] = useState(true);
   const [filterStartIso, setFilterStartIso] = useState('');
   const [filterEndIso, setFilterEndIso] = useState('');
@@ -73,6 +84,26 @@ export default function KasaDefteriView({ onBackToDashboard }: KasaDefteriViewPr
   const [closingBalance, setClosingBalance] = useState(0);
   const [totalIncoming, setTotalIncoming] = useState(0);
   const [totalOutgoing, setTotalOutgoing] = useState(0);
+
+  // Fix Bug 4: Fetch banks for bank name display
+  useEffect(() => {
+    const fetchBanks = async () => {
+      try {
+        const backendBanks = await apiGet<Array<{
+          id: string;
+          name: string;
+          accountNo: string | null;
+          iban: string | null;
+          isActive: boolean;
+          currentBalance: number;
+        }>>('/api/banks');
+        setBanks(backendBanks.map((b) => ({ id: b.id, name: b.name })));
+      } catch (error) {
+        console.error('Failed to fetch banks:', error);
+      }
+    };
+    fetchBanks();
+  }, []);
 
   // Fetch transactions from backend
   useEffect(() => {
@@ -120,8 +151,8 @@ export default function KasaDefteriView({ onBackToDashboard }: KasaDefteriViewPr
           closingBalance: number;
         }>(`/api/reports/kasa-defteri?${params.toString()}`);
 
-        // Map backend response to frontend format
-        const mapped = response.items.map((tx) => ({
+        // Fix Bug 4 & 5: Map backend response to frontend format, include bank and credit card info
+        const mapped = response.items.map((tx: any) => ({
           id: tx.id,
           isoDate: tx.isoDate,
           displayDate: isoToDisplay(tx.isoDate),
@@ -133,8 +164,10 @@ export default function KasaDefteriView({ onBackToDashboard }: KasaDefteriViewPr
           incoming: tx.incoming,
           outgoing: tx.outgoing,
           balanceAfter: tx.balanceAfter, // Use balanceAfter from backend
-          bankId: undefined,
-          bankDelta: undefined,
+          bankId: tx.bankId || undefined, // Fix Bug 4: Include bankId from backend
+          bankName: tx.bankName || undefined, // Fix Bug 5: Use bankName from backend
+          creditCardId: tx.creditCardId || undefined, // Fix Bug 5: Include creditCardId
+          bankDelta: undefined, // Not provided by backend for Kasa Defteri
           displayIncoming: undefined,
           displayOutgoing: undefined,
         }));
@@ -333,6 +366,7 @@ export default function KasaDefteriView({ onBackToDashboard }: KasaDefteriViewPr
                 Tür
               </th>
               <th className="py-2 px-2 text-left">Kaynak</th>
+              <th className="py-2 px-2 text-left">Banka</th>
               <th className="py-2 px-2 text-left cursor-pointer" onClick={() => toggleSort('counterparty')}>
                 Muhatap
               </th>
@@ -353,7 +387,7 @@ export default function KasaDefteriView({ onBackToDashboard }: KasaDefteriViewPr
           <tbody>
             {sortedTransactions.length === 0 && (
               <tr>
-                <td colSpan={11} className="py-4 text-center text-slate-500">
+                <td colSpan={12} className="py-4 text-center text-slate-500">
                   Kayıt bulunamadı.
                 </td>
               </tr>
@@ -367,6 +401,7 @@ export default function KasaDefteriView({ onBackToDashboard }: KasaDefteriViewPr
                   <td className="py-2 px-2">{tx.documentNo}</td>
                   <td className="py-2 px-2">{getTransactionTypeLabel(tx.type)}</td>
                   <td className="py-2 px-2">{getTransactionSourceLabel(tx.source)}</td>
+                  <td className="py-2 px-2">{getBankName(tx, banks) || '-'}</td>
                   <td className="py-2 px-2">{tx.counterparty}</td>
                   <td className="py-2 px-2">{tx.description}</td>
                   <td className="py-2 px-2">

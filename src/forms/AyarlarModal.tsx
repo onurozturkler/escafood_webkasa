@@ -9,6 +9,7 @@ import { Supplier } from '../models/supplier';
 import { CreditCard } from '../models/card';
 import { GlobalSettings } from '../models/settings';
 import { generateId } from '../utils/id';
+import { apiPost, apiPut, apiDelete, apiGet } from '../utils/api';
 
 export type SettingsTabKey =
   | 'BANKALAR'
@@ -87,12 +88,88 @@ export default function AyarlarModal(props: Props) {
   const [dirty, setDirty] = useState(false);
   const [globalForm, setGlobalForm] = useState<GlobalSettings>(globalSettings);
 
+  // Fix Bug 1 & 2: Fetch fresh data from backend when modal opens
   useEffect(() => {
     if (isOpen) {
       setDirty(false);
       setGlobalForm(globalSettings);
+      
+      // Fetch fresh banks and credit cards from backend to ensure we show actual DB state
+      const fetchFreshData = async () => {
+        try {
+          const [backendBanks, backendCreditCards] = await Promise.all([
+          apiGet<Array<{
+            id: string;
+            name: string;
+            accountNo: string | null;
+            iban: string | null;
+            isActive: boolean;
+            currentBalance: number;
+          }>>('/api/banks'),
+          apiGet<Array<{
+            id: string;
+            name: string;
+            bankId: string | null;
+            limit: number | null;
+            closingDay: number | null;
+            dueDay: number | null;
+            isActive: boolean;
+            currentDebt: number;
+            availableLimit: number | null;
+            lastOperationDate: string | null;
+            bank?: { id: string; name: string } | null;
+          }>>('/api/credit-cards'),
+        ]);
+
+        // Fix Bug 1: Map backend banks - if DB is empty, banks array will be empty (no mock data)
+        const mappedBanks: BankMaster[] = backendBanks.map((bank) => ({
+          id: bank.id,
+          bankaAdi: bank.name,
+          kodu: bank.accountNo ? bank.accountNo.substring(0, 4).toUpperCase() : 'BNK',
+          hesapAdi: bank.name + (bank.accountNo ? ` - ${bank.accountNo}` : ''),
+          iban: bank.iban || undefined,
+          acilisBakiyesi: bank.currentBalance,
+          aktifMi: bank.isActive,
+          // Fix Bug 2: Boolean flags default to false (not stored in backend, preserved in local state only)
+          cekKarnesiVarMi: false,
+          posVarMi: false,
+          krediKartiVarMi: false,
+        }));
+
+        // Fix Bug 1: Map backend credit cards - if DB is empty, cards array will be empty
+        const mappedCreditCards: CreditCard[] = backendCreditCards.map((card) => {
+          const limit = card.limit; // Preserve null if not set
+          const availableLimit = card.availableLimit; // Preserve null if limit is not set
+
+          return {
+            id: card.id,
+            bankaId: card.bankId || '',
+            kartAdi: card.name,
+            kartLimit: limit, // Can be null
+            limit: limit, // Can be null
+            kullanilabilirLimit: availableLimit, // Can be null
+            asgariOran: 0.4, // Default
+            hesapKesimGunu: card.closingDay || 1,
+            sonOdemeGunu: card.dueDay || 1,
+            maskeliKartNo: '', // Not stored in backend
+            aktifMi: card.isActive,
+            sonEkstreBorcu: 0, // Not calculated in backend yet
+            guncelBorc: card.currentDebt,
+          };
+        });
+
+        // Update parent state with fresh data from backend
+        setBanks(mappedBanks);
+        setCreditCards(mappedCreditCards);
+      } catch (error) {
+        console.error('Failed to fetch fresh data in Settings modal:', error);
+        // On error, don't update state - keep existing props
+      }
+    };
+    
+    fetchFreshData();
     }
-  }, [isOpen, globalSettings]);
+  }, [isOpen, globalSettings, setBanks, setCreditCards]);
 
   const handleClose = () => {
     if (dirty && !window.confirm('Kaydedilmemiş bilgiler var. Kapatmak istiyor musunuz?')) return;
@@ -202,49 +279,105 @@ function BankalarTab({ banks, setBanks, onDirty }: { banks: BankMaster[]; setBan
     }
   }, [editingId, banks]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!form.bankaAdi || !form.kodu || !form.hesapAdi) return;
-    if (editingId) {
-      setBanks(
-        banks.map((b) =>
-          b.id === editingId
-            ? {
-                ...b,
-                bankaAdi: form.bankaAdi,
-                kodu: form.kodu,
-                hesapAdi: form.hesapAdi,
-                iban: form.iban,
-                acilisBakiyesi: form.acilisBakiyesi || 0,
-                aktifMi: form.aktifMi,
-                cekKarnesiVarMi: form.cekKarnesiVarMi,
-                posVarMi: form.posVarMi,
-                krediKartiVarMi: form.krediKartiVarMi,
-              }
-            : b
-        )
-      );
-    } else {
-      setBanks([
-        ...banks,
-        {
-          id: generateId(),
-          bankaAdi: form.bankaAdi,
-          kodu: form.kodu,
-          hesapAdi: form.hesapAdi,
-          iban: form.iban,
-          acilisBakiyesi: form.acilisBakiyesi || 0,
-          aktifMi: form.aktifMi,
-          cekKarnesiVarMi: form.cekKarnesiVarMi,
-          posVarMi: form.posVarMi,
-          krediKartiVarMi: form.krediKartiVarMi,
-        },
-      ]);
+    
+    try {
+      if (editingId) {
+        // Update existing bank - save to backend first
+        const backendBank = await apiPut<{
+          id: string;
+          name: string;
+          accountNo: string | null;
+          iban: string | null;
+          isActive: boolean;
+        }>(`/api/banks/${editingId}`, {
+          name: form.bankaAdi,
+          accountNo: form.kodu,
+          iban: form.iban || null,
+          isActive: form.aktifMi,
+        });
+        
+        // Find existing bank to preserve currentBalance
+        const existingBank = banks.find((b) => b.id === editingId);
+        const currentBalance = existingBank?.acilisBakiyesi ?? 0;
+        
+        // Update local state with backend response
+        setBanks(
+          banks.map((b) =>
+            b.id === editingId
+              ? {
+                  id: backendBank.id, // Use real Bank.id from backend
+                  bankaAdi: backendBank.name,
+                  kodu: backendBank.accountNo ? backendBank.accountNo.substring(0, 4).toUpperCase() : 'BNK',
+                  hesapAdi: backendBank.name + (backendBank.accountNo ? ` - ${backendBank.accountNo}` : ''),
+                  iban: backendBank.iban || undefined,
+                  acilisBakiyesi: currentBalance, // Preserve existing balance
+                  aktifMi: backendBank.isActive,
+                  cekKarnesiVarMi: form.cekKarnesiVarMi,
+                  posVarMi: form.posVarMi,
+                  krediKartiVarMi: form.krediKartiVarMi,
+                }
+              : b
+          )
+        );
+      } else {
+        // Create new bank - save to backend first to get real Bank.id
+        // Include initialBalance so backend can create opening balance transaction
+        const backendBank = await apiPost<{
+          id: string;
+          name: string;
+          accountNo: string | null;
+          iban: string | null;
+          isActive: boolean;
+          currentBalance: number;
+        }>('/api/banks', {
+          name: form.bankaAdi,
+          accountNo: form.kodu,
+          iban: form.iban || null,
+          initialBalance: form.acilisBakiyesi || 0, // Send opening balance to backend
+        });
+        
+        // Add to local state using the real Bank.id from backend
+        // Use currentBalance from backend (includes opening balance transaction)
+        setBanks([
+          ...banks,
+          {
+            id: backendBank.id, // Use real Bank.id from backend, NOT generateId()
+            bankaAdi: backendBank.name,
+            kodu: backendBank.accountNo ? backendBank.accountNo.substring(0, 4).toUpperCase() : 'BNK',
+            hesapAdi: backendBank.name + (backendBank.accountNo ? ` - ${backendBank.accountNo}` : ''),
+            iban: backendBank.iban || undefined,
+            acilisBakiyesi: backendBank.currentBalance, // Use balance from backend (includes opening transaction)
+            aktifMi: backendBank.isActive,
+            cekKarnesiVarMi: form.cekKarnesiVarMi,
+            posVarMi: form.posVarMi,
+            krediKartiVarMi: form.krediKartiVarMi,
+          },
+        ]);
+      }
+      setEditingId(null);
+      onDirty();
+    } catch (error: any) {
+      alert(`Banka kaydedilemedi: ${error.message || 'Bilinmeyen hata'}`);
+      console.error('Failed to save bank:', error);
     }
-    setEditingId(null);
-    onDirty();
   };
 
-  const handleRemove = (id: string) => setBanks(banks.filter((b) => b.id !== id));
+  const handleRemove = async (id: string) => {
+    if (!window.confirm('Bu bankayı silmek istediğinizden emin misiniz?')) return;
+    
+    try {
+      // Delete from backend first
+      await apiDelete(`/api/banks/${id}`);
+      // Then remove from local state
+      setBanks(banks.filter((b) => b.id !== id));
+      onDirty();
+    } catch (error: any) {
+      alert(`Banka silinemedi: ${error.message || 'Bilinmeyen hata'}`);
+      console.error('Failed to delete bank:', error);
+    }
+  };
 
   const downloadBankCsv = () => {
     const header = [
@@ -287,11 +420,11 @@ function BankalarTab({ banks, setBanks, onDirty }: { banks: BankMaster[]; setBan
     URL.revokeObjectURL(url);
   };
 
-  const handleBankCsvChange = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleBankCsvChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const raw = reader.result as string;
       const text = raw.replace(/^\uFEFF/, '');
       const lines = text
@@ -317,7 +450,9 @@ function BankalarTab({ banks, setBanks, onDirty }: { banks: BankMaster[]; setBan
         );
         return;
       }
-      const parsed = lines
+      
+      // Parse CSV rows
+      const parsedRows = lines
         .slice(1)
         .map((line) => {
           const cols = line.split(CSV_DELIMITER);
@@ -332,7 +467,6 @@ function BankalarTab({ banks, setBanks, onDirty }: { banks: BankMaster[]; setBan
           const posVarMi = parseBoolean(cols[7] || '', false);
           const krediKartiVarMi = parseBoolean(cols[8] || '', false);
           return {
-            id: generateId(),
             bankaAdi,
             kodu,
             hesapAdi,
@@ -342,11 +476,68 @@ function BankalarTab({ banks, setBanks, onDirty }: { banks: BankMaster[]; setBan
             cekKarnesiVarMi,
             posVarMi,
             krediKartiVarMi,
-          } as BankMaster;
+          };
         })
-        .filter(Boolean) as BankMaster[];
-      setBanks(parsed);
-      onDirty();
+        .filter(Boolean) as Array<{
+          bankaAdi: string;
+          kodu: string;
+          hesapAdi: string;
+          iban: string;
+          acilisBakiyesi: number;
+          aktifMi: boolean;
+          cekKarnesiVarMi: boolean;
+          posVarMi: boolean;
+          krediKartiVarMi: boolean;
+        }>;
+      
+      // Save each bank to backend with opening balance
+      const createdBanks: BankMaster[] = [];
+      let errorCount = 0;
+      
+      for (const row of parsedRows) {
+        try {
+          const backendBank = await apiPost<{
+            id: string;
+            name: string;
+            accountNo: string | null;
+            iban: string | null;
+            isActive: boolean;
+            currentBalance: number;
+          }>('/api/banks', {
+            name: row.bankaAdi,
+            accountNo: row.kodu,
+            iban: row.iban || null,
+            initialBalance: row.acilisBakiyesi || 0, // Send opening balance to backend
+          });
+          
+          // Map backend response to BankMaster format
+          createdBanks.push({
+            id: backendBank.id, // Real Bank.id from backend
+            bankaAdi: backendBank.name,
+            kodu: backendBank.accountNo ? backendBank.accountNo.substring(0, 4).toUpperCase() : 'BNK',
+            hesapAdi: backendBank.name + (backendBank.accountNo ? ` - ${backendBank.accountNo}` : ''),
+            iban: backendBank.iban || undefined,
+            acilisBakiyesi: backendBank.currentBalance, // Use balance from backend (includes opening transaction)
+            aktifMi: backendBank.isActive,
+            cekKarnesiVarMi: row.cekKarnesiVarMi,
+            posVarMi: row.posVarMi,
+            krediKartiVarMi: row.krediKartiVarMi,
+          });
+        } catch (error: any) {
+          console.error(`Failed to create bank ${row.bankaAdi}:`, error);
+          errorCount++;
+        }
+      }
+      
+      if (errorCount > 0) {
+        alert(`${errorCount} banka kaydedilemedi. Lütfen konsolu kontrol edin.`);
+      }
+      
+      if (createdBanks.length > 0) {
+        // Add all created banks to local state
+        setBanks([...banks, ...createdBanks]);
+        onDirty();
+      }
     };
     reader.readAsText(file, 'UTF-8');
     e.target.value = '';
@@ -934,26 +1125,118 @@ function CardTab({ banks, creditCards, setCreditCards, onDirty }: { banks: BankM
     }
   }, [editingId, creditCards]);
 
-  const save = () => {
+  const save = async () => {
     if (!form.kartAdi || !form.bankaId) return;
-    const limit = form.limit ?? form.kartLimit ?? 0;
-    const prepared = {
-      ...form,
-      kartLimit: form.kartLimit ?? limit,
-      limit,
-      kullanilabilirLimit:
-        form.kullanilabilirLimit ?? (limit - (form.guncelBorc || 0)),
-    };
-    if (editingId) {
-      setCreditCards(creditCards.map((c) => (c.id === editingId ? { ...prepared, id: editingId } : c)));
-    } else {
-      setCreditCards([...creditCards, { ...prepared, id: generateId() }]);
+    
+    try {
+      // Get limit from form - use limit if set, otherwise kartLimit
+      // Send the actual value if it's > 0, otherwise send null (no limit set)
+      // Note: A limit of 0 doesn't make sense for credit cards, so we treat 0 as "no limit"
+      const limitValue = form.limit ?? form.kartLimit ?? null;
+      const limitToSend = limitValue !== null && limitValue !== undefined && limitValue > 0 ? limitValue : null;
+      
+      if (editingId) {
+        // Update existing card - save to backend first
+        const backendCard = await apiPut<{
+          id: string;
+          name: string;
+          bankId: string | null;
+          limit: number | null;
+          closingDay: number | null;
+          dueDay: number | null;
+          isActive: boolean;
+          currentDebt: number;
+          availableLimit: number | null;
+        }>(`/api/credit-cards/${editingId}`, {
+          name: form.kartAdi,
+          bankId: form.bankaId || null,
+          limit: limitToSend,
+          closingDay: form.hesapKesimGunu || null,
+          dueDay: form.sonOdemeGunu || null,
+          isActive: form.aktifMi,
+        });
+        
+        // Find existing card to preserve some frontend-only fields
+        const existingCard = creditCards.find((c) => c.id === editingId);
+        
+        // Update local state with backend response
+        setCreditCards(creditCards.map((c) => 
+          c.id === editingId ? {
+            id: backendCard.id,
+            bankaId: backendCard.bankId || '',
+            kartAdi: backendCard.name,
+            kartLimit: backendCard.limit, // Preserve null if not set
+            limit: backendCard.limit, // Preserve null if not set
+            kullanilabilirLimit: backendCard.availableLimit, // Preserve null if limit is not set
+            asgariOran: existingCard?.asgariOran ?? 0.4,
+            hesapKesimGunu: backendCard.closingDay || 1,
+            sonOdemeGunu: backendCard.dueDay || 1,
+            maskeliKartNo: existingCard?.maskeliKartNo ?? '',
+            aktifMi: backendCard.isActive,
+            sonEkstreBorcu: existingCard?.sonEkstreBorcu ?? 0,
+            guncelBorc: backendCard.currentDebt,
+          } : c
+        ));
+      } else {
+        // Create new card - save to backend first to get real CreditCard.id
+        const backendCard = await apiPost<{
+          id: string;
+          name: string;
+          bankId: string | null;
+          limit: number | null;
+          closingDay: number | null;
+          dueDay: number | null;
+          isActive: boolean;
+          currentDebt: number;
+          availableLimit: number | null;
+        }>('/api/credit-cards', {
+          name: form.kartAdi,
+          bankId: form.bankaId || null,
+          limit: limitToSend,
+          closingDay: form.hesapKesimGunu || null,
+          dueDay: form.sonOdemeGunu || null,
+          isActive: form.aktifMi,
+        });
+        
+        // Add to local state using the real CreditCard.id from backend
+        setCreditCards([...creditCards, {
+          id: backendCard.id, // Use real CreditCard.id from backend, NOT generateId()
+          bankaId: backendCard.bankId || '',
+          kartAdi: backendCard.name,
+          kartLimit: backendCard.limit ?? 0,
+          limit: backendCard.limit ?? 0,
+          kullanilabilirLimit: backendCard.availableLimit ?? (backendCard.limit !== null ? backendCard.limit - backendCard.currentDebt : 0),
+          asgariOran: form.asgariOran ?? 0.4,
+          hesapKesimGunu: backendCard.closingDay || 1,
+          sonOdemeGunu: backendCard.dueDay || 1,
+          maskeliKartNo: form.maskeliKartNo || '',
+          aktifMi: backendCard.isActive,
+          sonEkstreBorcu: form.sonEkstreBorcu || 0,
+          guncelBorc: backendCard.currentDebt,
+        }]);
+      }
+      setEditingId(null);
+      onDirty();
+    } catch (error: any) {
+      alert(`Kredi kartı kaydedilemedi: ${error.message || 'Bilinmeyen hata'}`);
+      console.error('Failed to save credit card:', error);
     }
-    setEditingId(null);
-    onDirty();
   };
 
-  const remove = (id: string) => setCreditCards(creditCards.filter((c) => c.id !== id));
+  const remove = async (id: string) => {
+    if (!window.confirm('Bu kredi kartını silmek istediğinizden emin misiniz?')) return;
+    
+    try {
+      // Delete from backend first (soft delete via update)
+      await apiPut(`/api/credit-cards/${id}`, { isActive: false });
+      // Then remove from local state
+      setCreditCards(creditCards.filter((c) => c.id !== id));
+      onDirty();
+    } catch (error: any) {
+      alert(`Kredi kartı silinemedi: ${error.message || 'Bilinmeyen hata'}`);
+      console.error('Failed to delete credit card:', error);
+    }
+  };
 
   const cardBanks = banks.filter((b) => b.krediKartiVarMi || b.id === form.bankaId);
 
@@ -975,7 +1258,7 @@ function CardTab({ banks, creditCards, setCreditCards, onDirty }: { banks: BankM
               <tr key={c.id} className="border-b hover:bg-slate-50 cursor-pointer" onClick={() => setEditingId(c.id)}>
                 <td className="px-2 py-1">{c.kartAdi}</td>
                 <td className="px-2 py-1">{banks.find((b) => b.id === c.bankaId)?.bankaAdi || '-'}</td>
-                <td className="px-2 py-1 text-right">{c.kartLimit.toFixed(2)}</td>
+                <td className="px-2 py-1 text-right">{c.kartLimit !== null ? c.kartLimit.toFixed(2) : '-'}</td>
                 <td className="px-2 py-1 text-right">{c.guncelBorc.toFixed(2)}</td>
                 <td className="px-2 py-1 text-right">
                   <button className="text-rose-600" onClick={() => remove(c.id)}>
