@@ -312,9 +312,11 @@ export class TransactionsService {
       deletedAt: null,
       // BUG 2 FIX: Exclude synthetic "Açılış bakiyesi" transactions from daily transaction list
       // These are created for bank opening balances but should not appear in "Gün içi işlemler"
-      description: {
-        not: 'Açılış bakiyesi',
-      },
+      // Use OR condition to include null descriptions (normal transactions) or non-"Açılış bakiyesi" descriptions
+      OR: [
+        { description: null },
+        { description: { not: 'Açılış bakiyesi' } },
+      ],
     };
 
     if (query.from || query.to) {
