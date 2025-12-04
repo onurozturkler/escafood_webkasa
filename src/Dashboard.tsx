@@ -1053,7 +1053,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         )}
         {activeView === 'KASA_DEFTERI' && (
           <div className="p-4">
-            <KasaDefteriView onBackToDashboard={handleBackToDashboard} />
+            <KasaDefteriView onBackToDashboard={handleBackToDashboard} banks={banks} />
           </div>
         )}
         {activeView === 'ISLEM_LOGU' && (

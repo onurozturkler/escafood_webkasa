@@ -10,12 +10,14 @@ interface UseBanksResult {
   refresh: () => Promise<void>;
 }
 
+const toStringId = (value: string | number) => value.toString();
+
 function mapBank(apiBank: BankApiResponse): BankMaster {
   return {
-    id: apiBank.id,
+    id: toStringId(apiBank.id),
     bankaAdi: apiBank.name,
     kodu: apiBank.accountNo || apiBank.name,
-    hesapAdi: apiBank.accountNo || apiBank.name,
+    hesapAdi: apiBank.name,
     iban: apiBank.iban || undefined,
     acilisBakiyesi: apiBank.currentBalance ?? 0,
     aktifMi: apiBank.isActive,
