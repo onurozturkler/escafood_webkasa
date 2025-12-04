@@ -71,7 +71,7 @@ export default function AyarlarModal(props: Props) {
     onClose,
     activeTab,
     onChangeTab,
-    banks,
+    banks: propsBanks,
     setBanks,
     posTerminals,
     setPosTerminals,
@@ -79,7 +79,7 @@ export default function AyarlarModal(props: Props) {
     setCustomers,
     suppliers,
     setSuppliers,
-    creditCards,
+    creditCards: propsCreditCards,
     setCreditCards,
     globalSettings,
     setGlobalSettings,
@@ -87,6 +87,9 @@ export default function AyarlarModal(props: Props) {
 
   const [dirty, setDirty] = useState(false);
   const [globalForm, setGlobalForm] = useState<GlobalSettings>(globalSettings);
+  // Fix Bug 1: Use local state for banks and credit cards to show actual DB state
+  const [localBanks, setLocalBanks] = useState<BankMaster[]>(propsBanks);
+  const [localCreditCards, setLocalCreditCards] = useState<CreditCard[]>(propsCreditCards);
 
   // Fix Bug 1 & 2: Fetch fresh data from backend when modal opens
   useEffect(() => {
@@ -158,18 +161,28 @@ export default function AyarlarModal(props: Props) {
           };
         });
 
-        // Update parent state with fresh data from backend
+        // Update local state immediately (for display in modal)
+        setLocalBanks(mappedBanks);
+        setLocalCreditCards(mappedCreditCards);
+        
+        // Also update parent state (for Dashboard)
         setBanks(mappedBanks);
         setCreditCards(mappedCreditCards);
       } catch (error) {
         console.error('Failed to fetch fresh data in Settings modal:', error);
-        // On error, don't update state - keep existing props
+        // On error, use props as fallback
+        setLocalBanks(propsBanks);
+        setLocalCreditCards(propsCreditCards);
       }
-    };
-    
-    fetchFreshData();
+      };
+      
+      fetchFreshData();
+    } else {
+      // When modal closes, sync local state with props
+      setLocalBanks(propsBanks);
+      setLocalCreditCards(propsCreditCards);
     }
-  }, [isOpen, globalSettings, setBanks, setCreditCards]);
+  }, [isOpen, globalSettings, setBanks, setCreditCards, propsBanks, propsCreditCards]);
 
   const handleClose = () => {
     if (dirty && !window.confirm('Kaydedilmemiş bilgiler var. Kapatmak istiyor musunuz?')) return;
@@ -197,10 +210,18 @@ export default function AyarlarModal(props: Props) {
           ))}
         </div>
         {activeTab === 'BANKALAR' && (
-          <BankalarTab banks={banks} setBanks={setBanks} onDirty={() => setDirty(true)} />
+          <BankalarTab 
+            banks={localBanks} 
+            setBanks={(newBanks) => {
+              setLocalBanks(newBanks);
+              setBanks(newBanks);
+              setDirty(true);
+            }} 
+            onDirty={() => setDirty(true)} 
+          />
         )}
         {activeTab === 'POS' && (
-          <PosTab banks={banks} posTerminals={posTerminals} setPosTerminals={setPosTerminals} onDirty={() => setDirty(true)} />
+          <PosTab banks={localBanks} posTerminals={posTerminals} setPosTerminals={setPosTerminals} onDirty={() => setDirty(true)} />
         )}
         {activeTab === 'MUSTERI' && (
           <CustomerTab customers={customers} setCustomers={setCustomers} onDirty={() => setDirty(true)} />
@@ -210,9 +231,13 @@ export default function AyarlarModal(props: Props) {
         )}
         {activeTab === 'KARTLAR' && (
           <CardTab
-            banks={banks}
-            creditCards={creditCards}
-            setCreditCards={setCreditCards}
+            banks={localBanks}
+            creditCards={localCreditCards}
+            setCreditCards={(newCards) => {
+              setLocalCreditCards(newCards);
+              setCreditCards(newCards);
+              setDirty(true);
+            }}
             onDirty={() => setDirty(true)}
           />
         )}
