@@ -149,12 +149,18 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
 
         console.log('Backend credit cards received:', backendCreditCards);
 
+        // Fix: Load credit card extras (sonEkstreBorcu, asgariOran, maskeliKartNo) from localStorage
+        const cardExtrasKey = 'esca-webkasa-card-extras';
+        const savedExtras = localStorage.getItem(cardExtrasKey);
+        const cardExtras: Record<string, { sonEkstreBorcu: number; asgariOran: number; maskeliKartNo: string }> = savedExtras ? JSON.parse(savedExtras) : {};
+        
         const mappedCreditCards: CreditCard[] = backendCreditCards.map((card) => {
           // Fix Bug 6: Preserve null limits from backend (don't convert to 0)
           // If limit is null, it means it's not set, so keep it as null
           // If limit is set (e.g., 250000), use that value
           const limit = card.limit; // Preserve null if not set
           const availableLimit = card.availableLimit; // Preserve null if limit is not set
+          const extras = cardExtras[card.id] || { sonEkstreBorcu: 0, asgariOran: 0.4, maskeliKartNo: '' };
 
           return {
             id: card.id,
@@ -163,12 +169,12 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
             kartLimit: limit, // Use backend limit (can be null)
             limit: limit, // Use backend limit (can be null)
             kullanilabilirLimit: availableLimit, // Use backend availableLimit (can be null)
-            asgariOran: 0.4, // Default, needs to come from backend if configurable
+            asgariOran: extras.asgariOran, // Load from localStorage
             hesapKesimGunu: card.closingDay ?? 1,
             sonOdemeGunu: card.dueDay ?? 1,
-            maskeliKartNo: '', // Not provided by backend yet
+            maskeliKartNo: extras.maskeliKartNo, // Load from localStorage
             aktifMi: card.isActive,
-            sonEkstreBorcu: 0, // Needs to be calculated or provided by backend
+            sonEkstreBorcu: extras.sonEkstreBorcu, // Load from localStorage
             guncelBorc: card.currentDebt, // Use backend currentDebt
           };
         });

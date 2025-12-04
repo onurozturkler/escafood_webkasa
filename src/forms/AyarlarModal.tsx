@@ -148,9 +148,15 @@ export default function AyarlarModal(props: Props) {
         });
 
         // Fix Bug 1: Map backend credit cards - if DB is empty, cards array will be empty
+        // Fix: Load sonEkstreBorcu from localStorage (it's not stored in backend)
+        const cardExtrasKey = 'esca-webkasa-card-extras';
+        const savedExtras = localStorage.getItem(cardExtrasKey);
+        const cardExtras: Record<string, { sonEkstreBorcu: number; asgariOran: number; maskeliKartNo: string }> = savedExtras ? JSON.parse(savedExtras) : {};
+        
         const mappedCreditCards: CreditCard[] = backendCreditCards.map((card) => {
           const limit = card.limit; // Preserve null if not set
           const availableLimit = card.availableLimit; // Preserve null if limit is not set
+          const extras = cardExtras[card.id] || { sonEkstreBorcu: 0, asgariOran: 0.4, maskeliKartNo: '' };
 
           return {
             id: card.id,
@@ -159,12 +165,12 @@ export default function AyarlarModal(props: Props) {
             kartLimit: limit, // Can be null
             limit: limit, // Can be null
             kullanilabilirLimit: availableLimit, // Can be null
-            asgariOran: 0.4, // Default
+            asgariOran: extras.asgariOran, // Load from localStorage
             hesapKesimGunu: card.closingDay || 1,
             sonOdemeGunu: card.dueDay || 1,
-            maskeliKartNo: '', // Not stored in backend
+            maskeliKartNo: extras.maskeliKartNo, // Load from localStorage
             aktifMi: card.isActive,
-            sonEkstreBorcu: 0, // Not calculated in backend yet
+            sonEkstreBorcu: extras.sonEkstreBorcu, // Load from localStorage
             guncelBorc: card.currentDebt,
           };
         });
@@ -206,6 +212,18 @@ export default function AyarlarModal(props: Props) {
       };
     });
     localStorage.setItem(bankFlagsKey, JSON.stringify(bankFlags));
+    
+    // Fix: Save credit card extras (sonEkstreBorcu, asgariOran, maskeliKartNo) to localStorage
+    const cardExtrasKey = 'esca-webkasa-card-extras';
+    const cardExtras: Record<string, { sonEkstreBorcu: number; asgariOran: number; maskeliKartNo: string }> = {};
+    localCreditCards.forEach((card) => {
+      cardExtras[card.id] = {
+        sonEkstreBorcu: card.sonEkstreBorcu || 0,
+        asgariOran: card.asgariOran || 0.4,
+        maskeliKartNo: card.maskeliKartNo || '',
+      };
+    });
+    localStorage.setItem(cardExtrasKey, JSON.stringify(cardExtras));
     
     // Fix Bug 3: Update parent state with latest data before closing
     setBanks(localBanks);
@@ -1231,12 +1249,12 @@ function CardTab({ banks, creditCards, setCreditCards, onDirty }: { banks: BankM
             kartLimit: backendCard.limit, // Preserve null if not set
             limit: backendCard.limit, // Preserve null if not set
             kullanilabilirLimit: backendCard.availableLimit, // Preserve null if limit is not set
-            asgariOran: existingCard?.asgariOran ?? 0.4,
+            asgariOran: form.asgariOran ?? existingCard?.asgariOran ?? 0.4, // Use form value
             hesapKesimGunu: backendCard.closingDay || 1,
             sonOdemeGunu: backendCard.dueDay || 1,
-            maskeliKartNo: existingCard?.maskeliKartNo ?? '',
+            maskeliKartNo: form.maskeliKartNo ?? existingCard?.maskeliKartNo ?? '', // Use form value
             aktifMi: backendCard.isActive,
-            sonEkstreBorcu: existingCard?.sonEkstreBorcu ?? 0,
+            sonEkstreBorcu: form.sonEkstreBorcu ?? existingCard?.sonEkstreBorcu ?? 0, // Use form value
             guncelBorc: backendCard.currentDebt,
           } : c
         ));
@@ -1277,6 +1295,17 @@ function CardTab({ banks, creditCards, setCreditCards, onDirty }: { banks: BankM
           sonEkstreBorcu: form.sonEkstreBorcu || 0,
           guncelBorc: backendCard.currentDebt,
         }]);
+        
+        // Fix: Save credit card extras to localStorage immediately
+        const cardExtrasKey = 'esca-webkasa-card-extras';
+        const savedExtras = localStorage.getItem(cardExtrasKey);
+        const cardExtras: Record<string, { sonEkstreBorcu: number; asgariOran: number; maskeliKartNo: string }> = savedExtras ? JSON.parse(savedExtras) : {};
+        cardExtras[backendCard.id] = {
+          sonEkstreBorcu: form.sonEkstreBorcu || 0,
+          asgariOran: form.asgariOran ?? 0.4,
+          maskeliKartNo: form.maskeliKartNo || '',
+        };
+        localStorage.setItem(cardExtrasKey, JSON.stringify(cardExtras));
       }
       setEditingId(null);
       onDirty();
