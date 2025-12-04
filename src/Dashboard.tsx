@@ -90,41 +90,8 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
   const [openSection, setOpenSection] = useState<Record<string, boolean>>({});
   const [activeView, setActiveView] = useState<ActiveView>('DASHBOARD');
 
-  const [banks, setBanks] = useState<BankMaster[]>([
-    {
-      id: generateId(),
-      bankaAdi: 'Yapı Kredi',
-      kodu: 'YKB',
-      hesapAdi: 'YKB-Vadesiz TL',
-      acilisBakiyesi: 0,
-      aktifMi: true,
-      cekKarnesiVarMi: true,
-      posVarMi: false,
-      krediKartiVarMi: false,
-    },
-    {
-      id: generateId(),
-      bankaAdi: 'Enpara',
-      kodu: 'ENPR',
-      hesapAdi: 'ENPR-Vadesiz TL',
-      acilisBakiyesi: 0,
-      aktifMi: true,
-      cekKarnesiVarMi: true,
-      posVarMi: false,
-      krediKartiVarMi: false,
-    },
-    {
-      id: generateId(),
-      bankaAdi: 'Halkbank',
-      kodu: 'HALK',
-      hesapAdi: 'HALK-Vadesiz TL',
-      acilisBakiyesi: 0,
-      aktifMi: true,
-      cekKarnesiVarMi: false,
-      posVarMi: false,
-      krediKartiVarMi: false,
-    },
-  ]);
+  // Start with empty banks array - will be loaded from backend
+  const [banks, setBanks] = useState<BankMaster[]>([]);
   const [posTerminals, setPosTerminals] = useState<PosTerminal[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -138,6 +105,55 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
   const [dailyTransactions, setDailyTransactions] = useState<DailyTransaction[]>([]);
   const [upcomingPayments, setUpcomingPayments] = useState<UpcomingPayment[]>([]);
   const [cekInitialTab, setCekInitialTab] = useState<'GIRIS' | 'CIKIS' | 'YENI' | 'RAPOR'>('GIRIS');
+
+  // Fetch banks from backend on mount
+  useEffect(() => {
+    const fetchBanks = async () => {
+      try {
+        console.log('Loading banks from backend...');
+        const backendBanks = await apiGet<Array<{
+          id: string;
+          name: string;
+          accountNo: string | null;
+          iban: string | null;
+          isActive: boolean;
+          currentBalance: number;
+        }>>('/api/banks');
+        
+        console.log('Backend banks received:', backendBanks);
+        
+        if (backendBanks.length === 0) {
+          console.warn('No banks found in database. Please create banks in the settings screen.');
+          // Clear mock banks - user must create banks first
+          setBanks([]);
+          return;
+        }
+        
+        // Map backend banks to frontend BankMaster format
+        const mappedBanks: BankMaster[] = backendBanks.map((bank) => ({
+          id: bank.id, // Use the real UUID from database
+          bankaAdi: bank.name,
+          kodu: bank.accountNo ? bank.accountNo.substring(0, 4).toUpperCase() : 'BNK',
+          hesapAdi: bank.name + (bank.accountNo ? ` - ${bank.accountNo}` : ''),
+          iban: bank.iban || undefined,
+          acilisBakiyesi: bank.currentBalance, // Use currentBalance from backend
+          aktifMi: bank.isActive,
+          cekKarnesiVarMi: false, // Default values - these might need to come from backend
+          posVarMi: false,
+          krediKartiVarMi: false,
+        }));
+        
+        console.log('Mapped banks:', mappedBanks);
+        setBanks(mappedBanks);
+      } catch (error) {
+        console.error('Failed to load banks from backend:', error);
+        // Clear mock banks on error - user must create banks first
+        setBanks([]);
+      }
+    };
+    
+    fetchBanks();
+  }, []);
 
   // Fetch today's transactions from backend
   useEffect(() => {
@@ -330,19 +346,77 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
       const type: DailyTransactionType =
         values.islemTuru === 'CEK_TAHSILATI' ? 'CEK_TAHSIL_BANKA' : 'BANKA_HAVALE_GIRIS';
 
-      // Validate bankId is a valid UUID string
+      // Validate bankId is present and exists in the banks array
       if (!values.bankaId || !values.bankaId.trim()) {
         alert('Banka seçmelisiniz.');
         return;
       }
 
-      // Ensure bankId is a valid UUID format
+      // Verify the selected bank exists in the loaded banks array
+      // If not found, reload from backend to ensure we have the latest bank data
+      let selectedBank = banks.find((b) => b.id === values.bankaId.trim());
+      if (!selectedBank) {
+        // Try to reload banks from backend in case they're stale
+        try {
+          console.log('Bank not found in local array, reloading from backend...');
+          const backendBanks = await apiGet<Array<{
+            id: string;
+            name: string;
+            accountNo: string | null;
+            iban: string | null;
+            isActive: boolean;
+            currentBalance: number;
+          }>>('/api/banks');
+          
+          const mappedBanks: BankMaster[] = backendBanks.map((bank) => ({
+            id: bank.id, // This is the real Bank.id from Prisma
+            bankaAdi: bank.name,
+            kodu: bank.accountNo ? bank.accountNo.substring(0, 4).toUpperCase() : 'BNK',
+            hesapAdi: bank.name + (bank.accountNo ? ` - ${bank.accountNo}` : ''),
+            iban: bank.iban || undefined,
+            acilisBakiyesi: bank.currentBalance,
+            aktifMi: bank.isActive,
+            cekKarnesiVarMi: false,
+            posVarMi: false,
+            krediKartiVarMi: false,
+          }));
+          
+          setBanks(mappedBanks);
+          
+          // Check again after reload
+          selectedBank = mappedBanks.find((b) => b.id === values.bankaId.trim());
+          if (!selectedBank) {
+            alert(`Seçilen banka (ID: ${values.bankaId}) veritabanında bulunamadı. Lütfen geçerli bir banka seçin.\n\nMevcut bankalar:\n${mappedBanks.map(b => `- ${b.hesapAdi} (${b.id})`).join('\n')}`);
+            console.error('Selected bank ID not found even after reload:', values.bankaId);
+            console.error('Available banks after reload:', mappedBanks.map(b => ({ id: b.id, name: b.hesapAdi })));
+            return;
+          }
+          
+          // Bank found after reload, continue with transaction
+          console.log('Bank found after reload:', selectedBank.hesapAdi, 'ID:', selectedBank.id);
+        } catch (reloadError) {
+          alert('Banka bilgileri yüklenirken hata oluştu. Lütfen sayfayı yenileyip tekrar deneyin.');
+          console.error('Failed to reload banks:', reloadError);
+          return;
+        }
+      }
+      
+      // At this point, selectedBank is guaranteed to exist and have the real Bank.id
+      console.log('Using bank:', selectedBank.hesapAdi, 'with ID:', selectedBank.id);
+
+      // Use the verified bank's ID (guaranteed to be the real Bank.id from Prisma)
+      // This ensures we always send the correct ID, even if values.bankaId somehow got corrupted
+      const normalizedBankId = selectedBank.id.trim();
+      
+      // Ensure bankId is a valid UUID format (Bank.id is String @id @default(uuid()) in schema)
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      const normalizedBankId = values.bankaId.trim();
       if (!uuidRegex.test(normalizedBankId)) {
-        alert('Geçersiz banka ID formatı.');
+        alert(`Geçersiz banka ID formatı: ${normalizedBankId}. Lütfen geçerli bir banka seçin.`);
+        console.error('Invalid bank ID format:', normalizedBankId);
         return;
       }
+
+      console.log('Sending transaction with bankId:', normalizedBankId, 'for bank:', selectedBank.hesapAdi);
 
       // Backend'e kaydet
       const response = await apiPost<{
@@ -1329,7 +1403,68 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
       />
       <AyarlarModal
         isOpen={openForm === 'AYARLAR'}
-        onClose={() => setOpenForm(null)}
+        onClose={async () => {
+          setOpenForm(null);
+          // Reload banks and credit cards from backend after settings modal closes to ensure sync
+          try {
+            const [backendBanks, backendCreditCards] = await Promise.all([
+              apiGet<Array<{
+                id: string;
+                name: string;
+                accountNo: string | null;
+                iban: string | null;
+                isActive: boolean;
+                currentBalance: number;
+              }>>('/api/banks'),
+              apiGet<Array<{
+                id: string;
+                name: string;
+                bankId: string | null;
+                limit: number | null;
+                closingDay: number | null;
+                dueDay: number | null;
+                isActive: boolean;
+                currentDebt: number;
+                availableLimit: number | null;
+                bank?: { id: string; name: string } | null;
+              }>>('/api/credit-cards'),
+            ]);
+            
+            const mappedBanks: BankMaster[] = backendBanks.map((bank) => ({
+              id: bank.id, // Real Bank.id from Prisma
+              bankaAdi: bank.name,
+              kodu: bank.accountNo ? bank.accountNo.substring(0, 4).toUpperCase() : 'BNK',
+              hesapAdi: bank.name + (bank.accountNo ? ` - ${bank.accountNo}` : ''),
+              iban: bank.iban || undefined,
+              acilisBakiyesi: bank.currentBalance,
+              aktifMi: bank.isActive,
+              cekKarnesiVarMi: false,
+              posVarMi: false,
+              krediKartiVarMi: false,
+            }));
+            
+            const mappedCreditCards: CreditCard[] = backendCreditCards.map((card) => ({
+              id: card.id, // Real CreditCard.id from Prisma
+              bankaId: card.bankId || '',
+              kartAdi: card.name,
+              kartLimit: card.limit || 0,
+              limit: card.limit || 0,
+              kullanilabilirLimit: card.availableLimit ?? (card.limit ? card.limit - card.currentDebt : 0),
+              asgariOran: 0.4, // Default value
+              hesapKesimGunu: card.closingDay || 1,
+              sonOdemeGunu: card.dueDay || 1,
+              maskeliKartNo: '', // Not stored in backend
+              aktifMi: card.isActive,
+              sonEkstreBorcu: 0, // Not calculated in backend yet
+              guncelBorc: card.currentDebt,
+            }));
+            
+            setBanks(mappedBanks);
+            setCreditCards(mappedCreditCards);
+          } catch (error) {
+            console.error('Failed to reload data after settings close:', error);
+          }
+        }}
         activeTab={settingsTab}
         onChangeTab={setSettingsTab}
         banks={banks}

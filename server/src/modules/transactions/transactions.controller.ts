@@ -38,11 +38,15 @@ function handleError(res: Response, error: unknown) {
 export class TransactionsController {
   async create(req: Request, res: Response) {
     try {
+      console.log('CREATE TRANSACTION REQUEST BODY >>>', JSON.stringify(req.body, null, 2));
       const payload = createTransactionSchema.parse(req.body);
+      console.log('CREATE TRANSACTION VALIDATED PAYLOAD >>>', JSON.stringify(payload, null, 2));
       const createdBy = getUserId(req);
+      console.log('CREATE TRANSACTION CREATED BY >>>', createdBy);
       const transaction = await service.createTransaction(payload, createdBy);
       res.status(201).json(transaction);
     } catch (error) {
+      console.error('CREATE TRANSACTION ERROR >>>', error);
       handleError(res, error);
     }
   }
