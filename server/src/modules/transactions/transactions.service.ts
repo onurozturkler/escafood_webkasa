@@ -141,10 +141,29 @@ export class TransactionsService {
       } else {
         bankDelta = 0;
       }
+    } else if (data.type === 'BANKA_KASA_TRANSFER') {
+      // BANK TO CASH TRANSFER: Money moves from bank to cash
+      // incoming=amount (cash increases), outgoing=0, bankDelta=-amount (bank decreases)
+      // IMPORTANT: source must be KASA so it affects cash balance calculation
+      incoming = data.incoming ?? 0;
+      outgoing = 0;
+      bankDelta = -(data.incoming ?? 0); // Bank decreases
+    } else if (data.type === 'KASA_BANKA_TRANSFER') {
+      // CASH TO BANK TRANSFER: Money moves from cash to bank
+      // incoming=0, outgoing=amount (cash decreases), bankDelta=+amount (bank increases)
+      // IMPORTANT: source must be KASA so it affects cash balance calculation
+      incoming = 0;
+      outgoing = data.outgoing ?? 0;
+      bankDelta = data.outgoing ?? 0; // Bank increases
     }
     // For other transaction types, use provided values (they may have custom logic)
     
-    const balanceAfter = await calculateBalanceAfter(data.isoDate, incoming, outgoing, data.source);
+    // For BANKA_KASA_TRANSFER and KASA_BANKA_TRANSFER, use KASA as source for balance calculation
+    // even though the transaction type indicates bank involvement
+    const balanceSource = (data.type === 'BANKA_KASA_TRANSFER' || data.type === 'KASA_BANKA_TRANSFER') 
+      ? 'KASA' 
+      : data.source;
+    const balanceAfter = await calculateBalanceAfter(data.isoDate, incoming, outgoing, balanceSource);
 
     // Data has already been validated by Zod schema, so bankId and creditCardId are either
     // valid UUID strings or null. We just need to ensure they're properly typed.
@@ -192,11 +211,16 @@ export class TransactionsService {
 
     // Prepare Prisma data - ensure all FKs are either valid UUID strings or null
     // Data has already been validated by Zod, so we can trust the types
+    // For BANKA_KASA_TRANSFER and KASA_BANKA_TRANSFER, store source as KASA in DB
+    // so it's included in cash balance calculations
+    const storedSource = (data.type === 'BANKA_KASA_TRANSFER' || data.type === 'KASA_BANKA_TRANSFER') 
+      ? 'KASA' 
+      : data.source;
     const prismaData = {
       isoDate: data.isoDate,
       documentNo: data.documentNo ?? null,
       type: data.type,
-      source: data.source,
+      source: storedSource,
       counterparty: data.counterparty ?? null,
       description: data.description ?? null,
       incoming: incoming,

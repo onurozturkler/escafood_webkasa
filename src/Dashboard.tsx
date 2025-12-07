@@ -324,43 +324,43 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
 
   useEffect(() => {
     const fetchUpcomingPayments = async () => {
-      const payments: UpcomingPayment[] = [];
-      const today = todayIso();
+    const payments: UpcomingPayment[] = [];
+    const today = todayIso();
 
       // Fix Bug 7: Show all credit cards with debt, not just those with krediKartiVarMi flag
-      creditCards
-        .filter((c) => c.sonEkstreBorcu > 0)
-        .forEach((card) => {
-          const { dueIso, dueDisplay, daysLeft } = getCreditCardNextDue(card);
-          payments.push({
-            id: `cc-${card.id}`,
-            category: 'KREDI_KARTI',
-            bankName: banks.find((b) => b.id === card.bankaId)?.bankaAdi || '-',
-            name: card.kartAdi,
-            dueDateIso: dueIso,
-            dueDateDisplay: dueDisplay,
-            amount: card.sonEkstreBorcu,
-            daysLeft,
-          });
+    creditCards
+      .filter((c) => c.sonEkstreBorcu > 0)
+      .forEach((card) => {
+        const { dueIso, dueDisplay, daysLeft } = getCreditCardNextDue(card);
+        payments.push({
+          id: `cc-${card.id}`,
+          category: 'KREDI_KARTI',
+          bankName: banks.find((b) => b.id === card.bankaId)?.bankaAdi || '-',
+          name: card.kartAdi,
+          dueDateIso: dueIso,
+          dueDateDisplay: dueDisplay,
+          amount: card.sonEkstreBorcu,
+          daysLeft,
         });
+      });
 
-      cheques
+    cheques
         .filter((c) => c.direction === 'BORC') // Only our issued cheques (BORC) appear in upcoming payments
-        .filter((c) => ['KASADA', 'BANKADA_TAHSILDE', 'ODEMEDE'].includes(c.status))
-        .forEach((cek) => {
-          payments.push({
-            id: `cek-${cek.id}`,
-            category: 'CEK',
-            bankName: cek.bankaAdi || '-',
-            name: cek.lehtar,
-            dueDateIso: cek.vadeTarihi,
-            dueDateDisplay: isoToDisplay(cek.vadeTarihi),
-            amount: cek.tutar,
-            daysLeft: diffInDays(today, cek.vadeTarihi),
-          });
+      .filter((c) => ['KASADA', 'BANKADA_TAHSILDE', 'ODEMEDE'].includes(c.status))
+      .forEach((cek) => {
+        payments.push({
+          id: `cek-${cek.id}`,
+          category: 'CEK',
+          bankName: cek.bankaAdi || '-',
+          name: cek.lehtar,
+          dueDateIso: cek.vadeTarihi,
+          dueDateDisplay: isoToDisplay(cek.vadeTarihi),
+          amount: cek.tutar,
+          daysLeft: diffInDays(today, cek.vadeTarihi),
         });
-      payments.sort((a, b) => a.daysLeft - b.daysLeft);
-      setUpcomingPayments(payments);
+      });
+    payments.sort((a, b) => a.daysLeft - b.daysLeft);
+    setUpcomingPayments(payments);
     };
 
     fetchUpcomingPayments();
@@ -427,10 +427,10 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
 
   const handleNakitGirisSaved = async (values: NakitGirisFormValues) => {
     try {
-      const documentNo = getNextBelgeNo('NKT-GRS', values.islemTarihiIso, dailyTransactions);
-      const foundCustomer = values.muhatapId ? customers.find((c) => c.id === values.muhatapId) : undefined;
-      const counterparty =
-        (foundCustomer && `${foundCustomer.kod} - ${foundCustomer.ad}`) || values.muhatap || 'Diğer';
+    const documentNo = getNextBelgeNo('NKT-GRS', values.islemTarihiIso, dailyTransactions);
+    const foundCustomer = values.muhatapId ? customers.find((c) => c.id === values.muhatapId) : undefined;
+    const counterparty =
+      (foundCustomer && `${foundCustomer.kod} - ${foundCustomer.ad}`) || values.muhatap || 'Diğer';
       const isBankToCash = values.kaynak === 'KASA_TRANSFER_BANKADAN';
       
       // Send to backend
@@ -450,14 +450,14 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         createdAt: string;
         createdBy: string;
       }>('/api/transactions', {
-        isoDate: values.islemTarihiIso,
-        documentNo,
+      isoDate: values.islemTarihiIso,
+      documentNo,
         type: isBankToCash ? 'BANKA_KASA_TRANSFER' : 'NAKIT_TAHSILAT',
-        source: isBankToCash ? 'BANKA' : 'KASA',
-        counterparty,
+        source: isBankToCash ? 'KASA' : 'KASA', // BANKA_KASA_TRANSFER must have source=KASA to affect cash balance
+      counterparty,
         description: values.aciklama || null,
-        incoming: values.tutar,
-        outgoing: 0,
+      incoming: values.tutar,
+      outgoing: 0,
         bankDelta: isBankToCash ? -values.tutar : 0,
         bankId: isBankToCash && values.bankaId ? values.bankaId : null,
       });
@@ -479,9 +479,9 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         bankDelta: response.bankDelta || undefined,
         createdAtIso: response.createdAt,
         createdBy: response.createdBy,
-      };
-      addTransactions([tx]);
-      setOpenForm(null);
+    };
+    addTransactions([tx]);
+    setOpenForm(null);
       
       // Refresh today's transactions from backend to ensure we have the latest data
       const today = todayIso();
@@ -521,10 +521,10 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
 
   const handleNakitCikisSaved = async (values: NakitCikisFormValues) => {
     try {
-      const documentNo = getNextBelgeNo('NKT-CKS', values.islemTarihiIso, dailyTransactions);
-      const foundSupplier = values.muhatapId ? suppliers.find((s) => s.id === values.muhatapId) : undefined;
-      const counterparty =
-        (foundSupplier && `${foundSupplier.kod} - ${foundSupplier.ad}`) || values.muhatap || 'Diğer';
+    const documentNo = getNextBelgeNo('NKT-CKS', values.islemTarihiIso, dailyTransactions);
+    const foundSupplier = values.muhatapId ? suppliers.find((s) => s.id === values.muhatapId) : undefined;
+    const counterparty =
+      (foundSupplier && `${foundSupplier.kod} - ${foundSupplier.ad}`) || values.muhatap || 'Diğer';
       const isCashToBank = values.kaynak === 'KASA_TRANSFER_BANKAYA';
       
       // Send to backend
@@ -544,13 +544,13 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         createdAt: string;
         createdBy: string;
       }>('/api/transactions', {
-        isoDate: values.islemTarihiIso,
-        documentNo,
+      isoDate: values.islemTarihiIso,
+      documentNo,
         type: isCashToBank ? 'KASA_BANKA_TRANSFER' : 'NAKIT_ODEME',
         source: isCashToBank ? 'BANKA' : 'KASA',
-        counterparty,
+      counterparty,
         description: values.aciklama || null,
-        incoming: 0,
+      incoming: 0,
         outgoing: values.tutar, // Fix: Set outgoing = amount for cash out
         bankDelta: isCashToBank ? values.tutar : 0,
         bankId: isCashToBank && values.bankaId ? values.bankaId : null,
@@ -602,10 +602,10 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           bankDelta: response.bankDelta || undefined,
           createdAtIso: response.createdAt,
           createdBy: response.createdBy,
-        };
-        addTransactions([tx]);
+    };
+    addTransactions([tx]);
       }
-      setOpenForm(null);
+    setOpenForm(null);
     } catch (error) {
       console.error('Failed to save nakit cikis:', error);
       alert('İşlem kaydedilemedi. Lütfen tekrar deneyin.');
@@ -614,16 +614,16 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
 
   const handleBankaNakitGirisSaved = async (values: BankaNakitGirisFormValues) => {
     try {
-      const documentNo = getNextBelgeNo('BNK-GRS', values.islemTarihiIso, dailyTransactions);
-      const foundCustomer = values.muhatapId ? customers.find((c) => c.id === values.muhatapId) : undefined;
-      const foundSupplier = values.muhatapId ? suppliers.find((s) => s.id === values.muhatapId) : undefined;
-      const counterparty =
-        (foundCustomer && `${foundCustomer.kod} - ${foundCustomer.ad}`) ||
-        (foundSupplier && `${foundSupplier.kod} - ${foundSupplier.ad}`) ||
-        values.muhatap ||
-        'Diğer';
+    const documentNo = getNextBelgeNo('BNK-GRS', values.islemTarihiIso, dailyTransactions);
+    const foundCustomer = values.muhatapId ? customers.find((c) => c.id === values.muhatapId) : undefined;
+    const foundSupplier = values.muhatapId ? suppliers.find((s) => s.id === values.muhatapId) : undefined;
+    const counterparty =
+      (foundCustomer && `${foundCustomer.kod} - ${foundCustomer.ad}`) ||
+      (foundSupplier && `${foundSupplier.kod} - ${foundSupplier.ad}`) ||
+      values.muhatap ||
+      'Diğer';
           // Fix Bug 3: Bank cash in should use NAKIT_TAHSILAT type with incoming = amount
-          const type: DailyTransactionType =
+    const type: DailyTransactionType =
             values.islemTuru === 'CEK_TAHSILATI' ? 'CEK_TAHSIL_BANKA' : 'NAKIT_TAHSILAT';
 
           // Validate bankId is present and exists in the banks array
@@ -719,14 +719,14 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
             createdAt: string;
             createdBy: string;
           }>('/api/transactions', {
-            isoDate: values.islemTarihiIso,
-            documentNo,
-            type,
-            source: 'BANKA',
-            counterparty,
+      isoDate: values.islemTarihiIso,
+      documentNo,
+      type,
+      source: 'BANKA',
+      counterparty,
             description: values.aciklama || null,
             incoming: values.tutar, // Backend will normalize to 0 for BANK CASH IN
-            outgoing: 0,
+      outgoing: 0,
             bankDelta: values.tutar, // Backend will use this for bankDelta
             displayIncoming: values.tutar, // BUG 2 FIX: Show amount in UI
             displayOutgoing: null,
@@ -755,12 +755,12 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         createdBy: response.createdBy,
       };
 
-      if (values.islemTuru === 'CEK_TAHSILATI' && values.cekId) {
+    if (values.islemTuru === 'CEK_TAHSILATI' && values.cekId) {
         setCheques((prev) => prev.map((c) => (c.id === values.cekId ? { ...c, status: 'TAHSIL_EDILDI' } : c)));
-      }
+    }
 
-      addTransactions([tx]);
-      setOpenForm(null);
+    addTransactions([tx]);
+    setOpenForm(null);
     } catch (error: any) {
       alert(`Hata: ${error.message || 'Banka nakit girişi kaydedilemedi'}`);
     }
@@ -781,18 +781,18 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         return;
       }
 
-      if (values.islemTuru === 'VIRMAN' && values.hedefBankaId) {
+    if (values.islemTuru === 'VIRMAN' && values.hedefBankaId) {
         if (!values.hedefBankaId.trim() || !uuidRegex.test(values.hedefBankaId.trim())) {
           alert('Geçersiz hedef banka ID formatı.');
           return;
         }
         const normalizedHedefBankId = values.hedefBankaId.trim();
 
-        const documentNoCks = getNextBelgeNo('BNK-CKS', values.islemTarihiIso, dailyTransactions);
-        const documentNoGrs = getNextBelgeNo('BNK-GRS', values.islemTarihiIso, [
-          ...dailyTransactions,
-          { documentNo: documentNoCks } as DailyTransaction,
-        ]);
+      const documentNoCks = getNextBelgeNo('BNK-CKS', values.islemTarihiIso, dailyTransactions);
+      const documentNoGrs = getNextBelgeNo('BNK-GRS', values.islemTarihiIso, [
+        ...dailyTransactions,
+        { documentNo: documentNoCks } as DailyTransaction,
+      ]);
 
         // Backend'e kaydet - çıkış transaction'ı
         const outResponse = await apiPost<{
@@ -811,15 +811,15 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           createdAt: string;
           createdBy: string;
         }>('/api/transactions', {
-          isoDate: values.islemTarihiIso,
-          documentNo: documentNoCks,
-          type: 'BANKA_HAVALE_CIKIS',
-          source: 'BANKA',
-          counterparty: values.muhatap || 'Virman',
+        isoDate: values.islemTarihiIso,
+        documentNo: documentNoCks,
+        type: 'BANKA_HAVALE_CIKIS',
+        source: 'BANKA',
+        counterparty: values.muhatap || 'Virman',
           description: values.aciklama || null,
-          incoming: 0,
+        incoming: 0,
           outgoing: values.tutar, // Fix Bug 8: Set outgoing = amount for bank cash out
-          bankDelta: -values.tutar,
+        bankDelta: -values.tutar,
           bankId: normalizedBankId,
         });
 
@@ -842,15 +842,15 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           createdAt: string;
           createdBy: string;
         }>('/api/transactions', {
-          isoDate: values.islemTarihiIso,
-          documentNo: documentNoGrs,
-          type: 'BANKA_HAVALE_GIRIS',
-          source: 'BANKA',
-          counterparty: values.muhatap || 'Virman',
-          description: `Virman - Kaynak İşlem: ${documentNoCks}`,
-          incoming: 0,
-          outgoing: 0,
-          bankDelta: values.tutar,
+        isoDate: values.islemTarihiIso,
+        documentNo: documentNoGrs,
+        type: 'BANKA_HAVALE_GIRIS',
+        source: 'BANKA',
+        counterparty: values.muhatap || 'Virman',
+        description: `Virman - Kaynak İşlem: ${documentNoCks}`,
+        incoming: 0,
+        outgoing: 0,
+        bankDelta: values.tutar,
           displayIncoming: values.tutar, // FIX: Show incoming amount for virman giriş transaction
           displayOutgoing: null,
           bankId: normalizedHedefBankId,
@@ -895,39 +895,39 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           createdBy: inResponse.createdBy,
         };
 
-        addTransactions([outTx, inTx]);
+      addTransactions([outTx, inTx]);
         setOpenForm(null);
         return;
-      } else {
-        const documentNo = getNextBelgeNo('BNK-CKS', values.islemTarihiIso, dailyTransactions);
-        let tutar = values.tutar;
-        let aciklama = values.aciklama || '';
-        let counterparty = values.muhatap || 'Diğer';
-        let description = aciklama;
+    } else {
+      const documentNo = getNextBelgeNo('BNK-CKS', values.islemTarihiIso, dailyTransactions);
+      let tutar = values.tutar;
+      let aciklama = values.aciklama || '';
+      let counterparty = values.muhatap || 'Diğer';
+      let description = aciklama;
 
 
         // BUG 7 FIX: Handle cheque payment - get cheque info and supplier
         let chequeToUpdate: { id: string; supplierId: string | null } | null = null;
-        if (values.islemTuru === 'CEK_ODEME' && values.cekId) {
-          const cheque = cheques.find((c) => c.id === values.cekId);
-          if (cheque) {
-            tutar = cheque.tutar;
+      if (values.islemTuru === 'CEK_ODEME' && values.cekId) {
+        const cheque = cheques.find((c) => c.id === values.cekId);
+        if (cheque) {
+          tutar = cheque.tutar;
             // BUG 7 FIX: Use supplierId from form if provided, otherwise from cheque
             const supplierId = values.supplierId || cheque.tedarikciId || null;
             const supplier = supplierId ? suppliers.find((s) => s.id === supplierId) : undefined;
-            counterparty = supplier ? `${supplier.kod} - ${supplier.ad}` : cheque.lehtar || counterparty;
-            description = `Çek No: ${cheque.cekNo}${values.aciklama ? ` – ${values.aciklama}` : ''}`;
+          counterparty = supplier ? `${supplier.kod} - ${supplier.ad}` : cheque.lehtar || counterparty;
+          description = `Çek No: ${cheque.cekNo}${values.aciklama ? ` – ${values.aciklama}` : ''}`;
             // BUG 7 FIX: Store cheque info to update status after transaction is created
             chequeToUpdate = { id: values.cekId, supplierId };
           }
         }
 
-        if (values.islemTuru === 'KREDI_KARTI_ODEME' && values.krediKartiId) {
-          const card = creditCards.find((c) => c.id === values.krediKartiId);
-          if (!card) {
-            setOpenForm(null);
-            return;
-          }
+      if (values.islemTuru === 'KREDI_KARTI_ODEME' && values.krediKartiId) {
+        const card = creditCards.find((c) => c.id === values.krediKartiId);
+        if (!card) {
+          setOpenForm(null);
+          return;
+        }
 
           try {
             const response = await apiPost<{
@@ -949,7 +949,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
               };
             }>('/api/credit-cards/payment', {
               creditCardId: values.krediKartiId,
-              isoDate: values.islemTarihiIso,
+          isoDate: values.islemTarihiIso,
               amount: values.tutar,
               description: values.aciklama || null,
               paymentSource: 'BANKA', // Always from bank in this flow
@@ -961,21 +961,21 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
               id: response.transaction.id,
               isoDate: response.transaction.isoDate,
               displayDate: isoToDisplay(response.transaction.isoDate),
-              documentNo,
+          documentNo,
               type: response.transaction.type as DailyTransactionType,
               source: response.transaction.source as DailyTransactionSource,
-              counterparty: card.kartAdi,
-              description: values.aciklama || '',
-              incoming: 0,
+          counterparty: card.kartAdi,
+          description: values.aciklama || '',
+          incoming: 0,
               outgoing: response.transaction.outgoing,
               balanceAfter: 0, // Will be recalculated
               bankId: response.transaction.bankId || undefined,
               bankDelta: response.transaction.bankDelta,
               createdAtIso: new Date().toISOString(),
-              createdBy: currentUser.email,
-            };
+          createdBy: currentUser.email,
+        };
 
-            addTransactions([tx]);
+        addTransactions([tx]);
             
             // FIX: Refresh credit cards after payment to update currentDebt
             try {
@@ -1023,8 +1023,8 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
               console.error('Failed to refresh credit cards after payment:', refreshError);
             }
             
-            setOpenForm(null);
-            return;
+        setOpenForm(null);
+        return;
           } catch (error: any) {
             alert(`Hata: ${error.message || 'Kredi kartı ödemesi kaydedilemedi'}`);
             return;
@@ -1063,16 +1063,16 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           createdAt: string;
           createdBy: string;
         }>('/api/transactions', {
-          isoDate: values.islemTarihiIso,
-          documentNo,
+        isoDate: values.islemTarihiIso,
+        documentNo,
           // BUG 2 FIX: Bank cash out - type: NAKIT_ODEME (or CEK_ODENMESI for cheques), source: BANKA
           // Backend normalizes: incoming=0, outgoing=amount, bankDelta=-amount
           // But we need displayOutgoing=amount for UI display
           type: values.islemTuru === 'CEK_ODEME' ? 'CEK_ODENMESI' : 'NAKIT_ODEME',
-          source: 'BANKA',
+        source: 'BANKA',
           counterparty: counterparty || 'Diğer',
           description: description || null,
-          incoming: 0,
+        incoming: 0,
           outgoing: tutar, // BUG 3 FIX: Must be > 0 for bank cash out
           bankDelta: -tutar, // Backend will normalize correctly
           displayIncoming: null, // BUG 2 FIX: No incoming for bank cash out
@@ -1107,7 +1107,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           createdBy: response.createdBy,
         };
 
-        addTransactions([tx]);
+      addTransactions([tx]);
         
         // BUG 7 FIX: Update cheque status to ODEMEDE and set supplierId after transaction is created
         if (chequeToUpdate) {
@@ -1137,7 +1137,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           }
         }
         
-        setOpenForm(null);
+    setOpenForm(null);
         return;
       }
     } catch (error: any) {
@@ -1148,14 +1148,14 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
 
   const handlePosTahsilatSaved = async (values: PosTahsilatFormValues) => {
     try {
-      const customer = customers.find((c) => c.id === values.customerId);
-      const bank = banks.find((b) => b.id === values.bankaId);
-      if (!customer || !bank) {
-        setOpenForm(null);
-        return;
-      }
-      const documentNo = getNextBelgeNo('BNK-GRS', values.islemTarihiIso, dailyTransactions);
-      const counterparty = `${customer.kod} - ${customer.ad}`;
+    const customer = customers.find((c) => c.id === values.customerId);
+    const bank = banks.find((b) => b.id === values.bankaId);
+    if (!customer || !bank) {
+      setOpenForm(null);
+      return;
+    }
+    const documentNo = getNextBelgeNo('BNK-GRS', values.islemTarihiIso, dailyTransactions);
+    const counterparty = `${customer.kod} - ${customer.ad}`;
 
       // Create POS tahsilat (brut) transaction
       const brutResponse = await apiPost<{
@@ -1175,16 +1175,16 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         createdAt: string;
         createdBy: string;
       }>('/api/transactions', {
-        isoDate: values.islemTarihiIso,
-        documentNo,
-        type: 'POS_TAHSILAT_BRUT',
-        source: 'POS',
-        counterparty,
+      isoDate: values.islemTarihiIso,
+      documentNo,
+      type: 'POS_TAHSILAT_BRUT',
+      source: 'POS',
+      counterparty,
         description: values.aciklama || null,
-        incoming: 0,
-        outgoing: 0,
+      incoming: 0,
+      outgoing: 0,
         bankDelta: values.netTutar, // BUG 5 FIX: Net amount (brut - commission)
-        bankId: values.bankaId,
+      bankId: values.bankaId,
         displayIncoming: values.brutTutar, // BUG 5 FIX: Brut amount for display
         displayOutgoing: null, // BUG 5 FIX: Must be null/0 for POS_TAHSILAT_BRUT validation
       });
@@ -1207,17 +1207,17 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         createdAt: string;
         createdBy: string;
       }>('/api/transactions', {
-        isoDate: values.islemTarihiIso,
-        documentNo: `${documentNo}-KOM`,
-        type: 'POS_KOMISYONU',
-        source: 'POS',
-        counterparty,
-        description: values.aciklama || 'POS Komisyonu',
-        incoming: 0,
+      isoDate: values.islemTarihiIso,
+      documentNo: `${documentNo}-KOM`,
+      type: 'POS_KOMISYONU',
+      source: 'POS',
+      counterparty,
+      description: values.aciklama || 'POS Komisyonu',
+      incoming: 0,
         outgoing: 0, // Backend will normalize based on transaction type
         bankDelta: -values.komisyonTutar, // Commission reduces bank balance
-        bankId: values.bankaId,
-        displayOutgoing: values.komisyonTutar,
+      bankId: values.bankaId,
+      displayOutgoing: values.komisyonTutar,
       });
 
       // Map backend responses to frontend format
@@ -1259,8 +1259,8 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         createdBy: komisyonResponse.createdBy,
       };
 
-      addTransactions([brutTx, komisyonTx]);
-      setOpenForm(null);
+    addTransactions([brutTx, komisyonTx]);
+    setOpenForm(null);
     } catch (error: any) {
       alert(`Hata: ${error.message || 'POS tahsilat kaydedilemedi'}`);
     }
@@ -1291,7 +1291,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         };
       }>('/api/credit-cards/expense', {
         creditCardId: values.cardId,
-        isoDate: values.islemTarihiIso,
+      isoDate: values.islemTarihiIso,
         amount: values.tutar,
         description: values.aciklama || null,
         counterparty: values.muhatap || `${supplier.kod} - ${supplier.ad}` || null,
@@ -1302,21 +1302,21 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         id: response.transaction.id,
         isoDate: response.transaction.isoDate,
         displayDate: isoToDisplay(response.transaction.isoDate),
-        documentNo: `KK-TED-${Date.now()}`,
+      documentNo: `KK-TED-${Date.now()}`,
         type: response.transaction.type as DailyTransactionType,
         source: response.transaction.source as DailyTransactionSource,
-        counterparty: values.muhatap || `${supplier.kod} - ${supplier.ad}`,
-        description: values.aciklama || '',
-        incoming: 0,
-        outgoing: 0,
+      counterparty: values.muhatap || `${supplier.kod} - ${supplier.ad}`,
+      description: values.aciklama || '',
+      incoming: 0,
+      outgoing: 0,
         balanceAfter: 0, // Will be recalculated
-        bankDelta: 0,
+      bankDelta: 0,
         displayOutgoing: response.transaction.displayOutgoing || undefined,
         createdAtIso: new Date().toISOString(),
-        createdBy: currentUser.email,
-      };
+      createdBy: currentUser.email,
+    };
 
-      addTransactions([tx]);
+    addTransactions([tx]);
       
       // BUG 6 FIX: Re-fetch credit cards to update currentDebt after expense
       try {
@@ -1372,13 +1372,13 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
 
   const handleKrediKartiMasrafSaved = async (values: KrediKartiMasrafFormValues) => {
     try {
-      const meta =
-        values.masrafTuru === 'AKARYAKIT'
-          ? values.plaka
-          : values.masrafTuru === 'FATURA'
-          ? values.faturaAltTuru
-          : undefined;
-      const counterparty = values.aciklama || meta || values.masrafTuru;
+    const meta =
+      values.masrafTuru === 'AKARYAKIT'
+        ? values.plaka
+        : values.masrafTuru === 'FATURA'
+        ? values.faturaAltTuru
+        : undefined;
+    const counterparty = values.aciklama || meta || values.masrafTuru;
 
       const response = await apiPost<{
         operation: {
@@ -1397,7 +1397,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         };
       }>('/api/credit-cards/expense', {
         creditCardId: values.cardId,
-        isoDate: values.islemTarihiIso,
+      isoDate: values.islemTarihiIso,
         amount: values.tutar,
         description: values.aciklama || null,
         counterparty: counterparty || 'Masraf' || null,
@@ -1408,21 +1408,21 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         id: response.transaction.id,
         isoDate: response.transaction.isoDate,
         displayDate: isoToDisplay(response.transaction.isoDate),
-        documentNo: `KK-MSF-${Date.now()}`,
+      documentNo: `KK-MSF-${Date.now()}`,
         type: response.transaction.type as DailyTransactionType,
         source: response.transaction.source as DailyTransactionSource,
-        counterparty: counterparty || 'Masraf',
-        description: values.aciklama || '',
-        incoming: 0,
-        outgoing: 0,
+      counterparty: counterparty || 'Masraf',
+      description: values.aciklama || '',
+      incoming: 0,
+      outgoing: 0,
         balanceAfter: 0, // Will be recalculated
-        bankDelta: 0,
+      bankDelta: 0,
         displayOutgoing: response.transaction.displayOutgoing || undefined,
         createdAtIso: new Date().toISOString(),
-        createdBy: currentUser.email,
-      };
+      createdBy: currentUser.email,
+    };
 
-      addTransactions([tx]);
+    addTransactions([tx]);
       
       // BUG 6 FIX: Re-fetch credit cards to update currentDebt after expense
       try {
@@ -1470,7 +1470,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         console.error('Failed to refresh credit cards after expense:', refreshError);
       }
       
-      setOpenForm(null);
+    setOpenForm(null);
     } catch (error: any) {
       alert(`Hata: ${error.message || 'Kredi kartı masrafı kaydedilemedi'}`);
     }
