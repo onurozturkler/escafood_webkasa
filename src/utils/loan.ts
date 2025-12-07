@@ -11,13 +11,23 @@ export interface LoanInstallment {
   remainingPrincipal: number;
 }
 
-export function buildLoanSchedule(loan: Loan): LoanInstallment[] {
-  const r = loan.faizOraniYillik / 12;
-  const b = loan.bsmvOrani;
+export interface LoanScheduleItem {
+  index: number;
+  dateIso: string;
+  principal: number;
+  interest: number;
+  bsmv: number;
+  totalPayment: number;
+  remainingPrincipal: number;
+}
+
+export function buildLoanSchedule(loan: Loan): LoanScheduleItem[] {
+  const r = loan.annualInterestRate / 12;
+  const b = loan.bsmvRate;
   const rEff = r * (1 + b);
-  const n = loan.vadeSayisi;
-  const P = loan.toplamKrediTutari;
-  const schedule: LoanInstallment[] = [];
+  const n = loan.installmentCount;
+  const P = loan.totalAmount;
+  const schedule: LoanScheduleItem[] = [];
 
   const factor = Math.pow(1 + rEff, n);
   const installment = rEff === 0 ? P / n : (P * (rEff * factor)) / (factor - 1);
@@ -42,7 +52,7 @@ export function buildLoanSchedule(loan: Loan): LoanInstallment[] {
 
     schedule.push({
       index: i,
-      dateIso: addMonths(loan.ilkTaksitTarihi, i - 1),
+      dateIso: addMonths(loan.firstInstallmentDate, i - 1),
       principal,
       interest,
       bsmv,

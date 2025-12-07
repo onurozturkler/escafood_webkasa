@@ -5,6 +5,7 @@ import { PosTerminal } from './models/pos';
 import { Customer } from './models/customer';
 import { Supplier } from './models/supplier';
 import { CreditCard } from './models/card';
+import { Loan } from './models/loan';
 import { GlobalSettings } from './models/settings';
 import { Cheque } from './models/cheque';
 import { DailyTransaction, DailyTransactionSource, DailyTransactionType } from './models/transaction';
@@ -154,6 +155,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [creditCards, setCreditCards] = useState<CreditCard[]>([]);
+  const [loans, setLoans] = useState<Loan[]>([]);
   const [globalSettings, setGlobalSettings] = useState<GlobalSettings>({
     varsayilanAsgariOdemeOrani: 0.4,
     varsayilanBsmvOrani: 0.05,
@@ -223,6 +225,21 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
     };
 
     fetchCreditCards();
+  }, []);
+
+  // Fetch loans from backend on mount
+  useEffect(() => {
+    const fetchLoans = async () => {
+      try {
+        const backendLoans = await apiGet<Loan[]>('/api/loans');
+        setLoans(backendLoans);
+      } catch (error) {
+        console.error('Failed to load loans from backend:', error);
+        setLoans([]);
+      }
+    };
+
+    fetchLoans();
   }, []);
 
   // Fetch banks from backend on mount
@@ -1183,7 +1200,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         description: values.aciklama || null,
       incoming: 0,
       outgoing: 0,
-        bankDelta: values.netTutar, // BUG 5 FIX: Net amount (brut - commission)
+        bankDelta: values.brutTutar, // POS tahsilat: Bankaya brüt tutar eklenir
       bankId: values.bankaId,
         displayIncoming: values.brutTutar, // BUG 5 FIX: Brut amount for display
         displayOutgoing: null, // BUG 5 FIX: Must be null/0 for POS_TAHSILAT_BRUT validation
@@ -2055,6 +2072,8 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         setSuppliers={setSuppliers}
         creditCards={creditCards}
         setCreditCards={setCreditCards}
+        loans={loans}
+        setLoans={setLoans}
         globalSettings={globalSettings}
         setGlobalSettings={setGlobalSettings}
       />
