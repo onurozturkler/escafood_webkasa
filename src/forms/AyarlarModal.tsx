@@ -1,7 +1,5 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 
-import Modal from '../components/Modal';
-
 import { BankMaster } from '../models/bank';
 
 import { Customer } from '../models/customer';
@@ -17,6 +15,10 @@ import { PosTerminal } from '../models/pos';
 import { GlobalSettings } from '../models/settings';
 
 import { apiDelete, apiGet, apiPost, apiPut } from '../utils/api';
+
+import { generateId } from '../utils/id';
+
+import FormRow from '../components/FormRow';
 
 
 
@@ -100,11 +102,11 @@ type BankFlagMap = Record<
 
   {
 
-    hasChequeBook?: boolean;
+    cekKarnesiVarMi?: boolean;
 
-    hasPos?: boolean;
+    posVarMi?: boolean;
 
-    hasCreditCard?: boolean;
+    krediKartiVarMi?: boolean;
 
   }
 
@@ -113,6 +115,17 @@ type BankFlagMap = Record<
 
 
 const BANK_FLAGS_STORAGE_KEY = 'esca-webkasa-bank-flags';
+
+const CSV_DELIMITER = ';';
+
+function nextCode(items: { kod: string }[], prefix: string) {
+  const max = items.reduce((acc, item) => {
+    const num = parseInt(item.kod.replace(`${prefix}-`, ''), 10);
+    return Number.isNaN(num) ? acc : Math.max(acc, num);
+  }, 0);
+  const next = String(max + 1).padStart(4, '0');
+  return `${prefix}-${next}`;
+}
 
 
 
@@ -232,7 +245,7 @@ const AyarlarModal: React.FC<Props> = ({
 
       try {
 
-        const [backendBanks, backendCustomers, backendSuppliers, backendCards, backendLoans] =
+        const [backendBanks, backendCards, backendLoans] =
 
           await Promise.all([
 
@@ -255,10 +268,6 @@ const AyarlarModal: React.FC<Props> = ({
               }>
 
             >('/api/banks'),
-
-            apiGet<Customer[]>('/api/customers'),
-
-            apiGet<Supplier[]>('/api/suppliers'),
 
             apiGet<
 
@@ -301,68 +310,56 @@ const AyarlarModal: React.FC<Props> = ({
 
 
         const mappedBanks: BankMaster[] = backendBanks.map((b) => {
-
-          const flags = flagsFromStorage[b.id] || {};
-
+          const flags = flagsFromStorage[b.id] || { cekKarnesiVarMi: false, posVarMi: false, krediKartiVarMi: false };
           return {
-
             id: b.id,
-
-            name: b.name,
-
-            accountNo: b.accountNo ?? '',
-
-            iban: b.iban ?? '',
-
-            openingBalance: b.currentBalance ?? 0,
-
-            isActive: b.isActive,
-
-            hasChequeBook: !!flags.hasChequeBook,
-
-            hasPos: !!flags.hasPos,
-
-            hasCreditCard: !!flags.hasCreditCard,
-
+            bankaAdi: b.name,
+            kodu: b.accountNo ? b.accountNo.substring(0, 4).toUpperCase() : 'BNK',
+            hesapAdi: b.name + (b.accountNo ? ` - ${b.accountNo}` : ''),
+            iban: b.iban || undefined,
+            acilisBakiyesi: b.currentBalance,
+            aktifMi: b.isActive,
+            cekKarnesiVarMi: flags.cekKarnesiVarMi ?? false,
+            posVarMi: flags.posVarMi ?? false,
+            krediKartiVarMi: flags.krediKartiVarMi ?? false,
           };
-
         });
 
 
+        // Load credit card extras from localStorage
+        const cardExtrasKey = 'esca-webkasa-card-extras';
+        const savedExtras = localStorage.getItem(cardExtrasKey);
+        const cardExtras: Record<string, { sonEkstreBorcu: number; asgariOran: number; maskeliKartNo: string }> = savedExtras ? JSON.parse(savedExtras) : {};
 
-        const mappedCards: CreditCard[] = backendCards.map((c) => ({
+        const mappedCards: CreditCard[] = backendCards.map((c) => {
+          const limit = c.limit; // Preserve null if not set
+          const availableLimit = c.availableLimit; // Preserve null if limit is not set
+          const extras = cardExtras[c.id] || { sonEkstreBorcu: 0, asgariOran: 0.4, maskeliKartNo: '' };
 
-          id: c.id,
-
-          name: c.name,
-
-          bankId: c.bankId,
-
-          bankName: c.bank?.name ?? '',
-
-          limit: c.limit ?? 0,
-
-          currentDebt: c.currentDebt ?? 0,
-
-          closingDay: c.closingDay ?? null,
-
-          dueDay: c.dueDay ?? null,
-
-          isActive: c.isActive,
-
-          availableLimit: c.availableLimit,
-
-          lastOperationDate: c.lastOperationDate,
-
-        }));
+          return {
+            id: c.id,
+            bankaId: c.bankId || '',
+            kartAdi: c.name,
+            kartLimit: limit, // Use backend limit (can be null)
+            limit: limit, // Use backend limit (can be null)
+            kullanilabilirLimit: availableLimit, // Use backend availableLimit (can be null)
+            asgariOran: extras.asgariOran, // Load from localStorage
+            hesapKesimGunu: c.closingDay ?? 1,
+            sonOdemeGunu: c.dueDay ?? 1,
+            maskeliKartNo: extras.maskeliKartNo, // Load from localStorage
+            aktifMi: c.isActive,
+            sonEkstreBorcu: extras.sonEkstreBorcu, // Load from localStorage
+            guncelBorc: c.currentDebt, // Use backend currentDebt
+          };
+        });
 
 
 
         setLocalBanks(mappedBanks);
 
-        setLocalCustomers(backendCustomers);
+        setLocalCustomers(customers);
 
-        setLocalSuppliers(backendSuppliers);
+        setLocalSuppliers(suppliers);
 
         setLocalCreditCards(mappedCards);
 
@@ -377,10 +374,6 @@ const AyarlarModal: React.FC<Props> = ({
         // dış state'i de güncelle
 
         setBanks(mappedBanks);
-
-        setCustomers(backendCustomers);
-
-        setSuppliers(backendSuppliers);
 
         setCreditCards(mappedCards);
 
@@ -406,11 +399,11 @@ const AyarlarModal: React.FC<Props> = ({
 
     setCreditCards,
 
-    setCustomers,
-
-    setSuppliers,
-
     setLoans,
+
+    customers,
+
+    suppliers,
 
     globalSettings,
 
@@ -506,19 +499,19 @@ const AyarlarModal: React.FC<Props> = ({
 
               ...b,
 
-              hasChequeBook:
+              cekKarnesiVarMi:
 
-                field === 'hasChequeBook'
+                field === 'cekKarnesiVarMi'
 
                   ? value
 
-                  : b.hasChequeBook,
+                  : b.cekKarnesiVarMi,
 
-              hasPos: field === 'hasPos' ? value : b.hasPos,
+              posVarMi: field === 'posVarMi' ? value : b.posVarMi,
 
-              hasCreditCard:
+              krediKartiVarMi:
 
-                field === 'hasCreditCard' ? value : b.hasCreditCard,
+                field === 'krediKartiVarMi' ? value : b.krediKartiVarMi,
 
             }
 
@@ -568,15 +561,15 @@ const AyarlarModal: React.FC<Props> = ({
 
         id: b.id,
 
-        name: b.name,
+        name: b.bankaAdi,
 
-        accountNo: b.accountNo || null,
+        accountNo: b.hesapAdi.includes(' - ') ? b.hesapAdi.split(' - ')[1] : null,
 
         iban: b.iban || null,
 
-        openingBalance: b.openingBalance ?? 0,
+        openingBalance: b.acilisBakiyesi ?? 0,
 
-        isActive: b.isActive,
+        isActive: b.aktifMi,
 
       }));
 
@@ -610,11 +603,11 @@ const AyarlarModal: React.FC<Props> = ({
 
         flagsMap[b.id] = {
 
-          hasChequeBook: !!b.hasChequeBook,
+          cekKarnesiVarMi: !!b.cekKarnesiVarMi,
 
-          hasPos: !!b.hasPos,
+          posVarMi: !!b.posVarMi,
 
-          hasCreditCard: !!b.hasCreditCard,
+          krediKartiVarMi: !!b.krediKartiVarMi,
 
         };
 
@@ -634,21 +627,23 @@ const AyarlarModal: React.FC<Props> = ({
 
           id: b.id,
 
-          name: b.name,
+          bankaAdi: b.name,
 
-          accountNo: b.accountNo ?? '',
+          kodu: b.accountNo ? b.accountNo.substring(0, 4).toUpperCase() : 'BNK',
 
-          iban: b.iban ?? '',
+          hesapAdi: b.name + (b.accountNo ? ` - ${b.accountNo}` : ''),
 
-          openingBalance: b.currentBalance ?? 0,
+          iban: b.iban || undefined,
 
-          isActive: b.isActive,
+          acilisBakiyesi: b.currentBalance ?? 0,
 
-          hasChequeBook: !!f.hasChequeBook,
+          aktifMi: b.isActive,
 
-          hasPos: !!f.hasPos,
+          cekKarnesiVarMi: !!f.cekKarnesiVarMi,
 
-          hasCreditCard: !!f.hasCreditCard,
+          posVarMi: !!f.posVarMi,
+
+          krediKartiVarMi: !!f.krediKartiVarMi,
 
         };
 
@@ -680,21 +675,23 @@ const AyarlarModal: React.FC<Props> = ({
 
       id: `tmp-${Date.now()}`,
 
-      name: '',
+      bankaAdi: '',
 
-      accountNo: '',
+      kodu: 'BNK',
 
-      iban: '',
+      hesapAdi: '',
 
-      openingBalance: 0,
+      iban: undefined,
 
-      isActive: true,
+      acilisBakiyesi: 0,
 
-      hasChequeBook: false,
+      aktifMi: true,
 
-      hasPos: false,
+      cekKarnesiVarMi: false,
 
-      hasCreditCard: false,
+      posVarMi: false,
+
+      krediKartiVarMi: false,
 
     };
 
@@ -706,7 +703,7 @@ const AyarlarModal: React.FC<Props> = ({
 
   const handleDeleteBank = async (bank: BankMaster) => {
 
-    if (!window.confirm(`${bank.name} bankasını silmek istediğinize emin misiniz?`)) {
+    if (!window.confirm(`${bank.bankaAdi} bankasını silmek istediğinize emin misiniz?`)) {
 
       return;
 
@@ -768,19 +765,19 @@ const AyarlarModal: React.FC<Props> = ({
 
         id: c.id,
 
-        name: c.name,
+        name: c.kartAdi,
 
-        bankId: c.bankId,
+        bankId: c.bankaId || null,
 
         limit: c.limit ?? 0,
 
-        closingDay: c.closingDay,
+        closingDay: c.hesapKesimGunu ?? null,
 
-        dueDay: c.dueDay,
+        dueDay: c.sonOdemeGunu ?? null,
 
-        isActive: c.isActive,
+        isActive: c.aktifMi,
 
-        currentDebt: c.currentDebt ?? 0,
+        currentDebt: c.guncelBorc ?? 0,
 
       }));
 
@@ -818,31 +815,32 @@ const AyarlarModal: React.FC<Props> = ({
 
 
 
-      const mapped: CreditCard[] = saved.map((c) => ({
+      // Load credit card extras from localStorage
+      const cardExtrasKey = 'esca-webkasa-card-extras';
+      const savedExtras = localStorage.getItem(cardExtrasKey);
+      const cardExtras: Record<string, { sonEkstreBorcu: number; asgariOran: number; maskeliKartNo: string }> = savedExtras ? JSON.parse(savedExtras) : {};
 
-        id: c.id,
+      const mapped: CreditCard[] = saved.map((c) => {
+        const limit = c.limit; // Preserve null if not set
+        const availableLimit = c.availableLimit; // Preserve null if limit is not set
+        const extras = cardExtras[c.id] || { sonEkstreBorcu: 0, asgariOran: 0.4, maskeliKartNo: '' };
 
-        name: c.name,
-
-        bankId: c.bankId,
-
-        bankName: c.bank?.name ?? '',
-
-        limit: c.limit ?? 0,
-
-        currentDebt: c.currentDebt ?? 0,
-
-        availableLimit: c.availableLimit,
-
-        closingDay: c.closingDay,
-
-        dueDay: c.dueDay,
-
-        isActive: c.isActive,
-
-        lastOperationDate: c.lastOperationDate,
-
-      }));
+        return {
+          id: c.id,
+          bankaId: c.bankId || '',
+          kartAdi: c.name,
+          kartLimit: limit, // Use backend limit (can be null)
+          limit: limit, // Use backend limit (can be null)
+          kullanilabilirLimit: availableLimit, // Use backend availableLimit (can be null)
+          asgariOran: extras.asgariOran, // Load from localStorage
+          hesapKesimGunu: c.closingDay ?? 1,
+          sonOdemeGunu: c.dueDay ?? 1,
+          maskeliKartNo: extras.maskeliKartNo, // Load from localStorage
+          aktifMi: c.isActive,
+          sonEkstreBorcu: extras.sonEkstreBorcu, // Load from localStorage
+          guncelBorc: c.currentDebt, // Use backend currentDebt
+        };
+      });
 
 
 
@@ -868,25 +866,30 @@ const AyarlarModal: React.FC<Props> = ({
 
       id: `tmp-${Date.now()}`,
 
-      name: '',
+      bankaId: '',
 
-      bankId: null,
+      kartAdi: '',
 
-      bankName: '',
+      kartLimit: null,
 
-      limit: 0,
+      limit: null,
 
-      currentDebt: 0,
+      kullanilabilirLimit: null,
 
-      availableLimit: null,
+      asgariOran: 0.4,
 
-      closingDay: null,
+      hesapKesimGunu: 1,
 
-      dueDay: null,
+      sonOdemeGunu: 1,
 
-      isActive: true,
+      maskeliKartNo: '',
 
-      lastOperationDate: null,
+      aktifMi: true,
+
+      sonEkstreBorcu: 0,
+
+      guncelBorc: 0,
+
 
     };
 
@@ -900,7 +903,7 @@ const AyarlarModal: React.FC<Props> = ({
 
   const handleDeleteCreditCard = async (card: CreditCard) => {
 
-    if (!window.confirm(`${card.name} kartını silmek istediğinize emin misiniz?`)) {
+    if (!window.confirm(`${card.kartAdi} kartını silmek istediğinize emin misiniz?`)) {
 
       return;
 
@@ -1054,7 +1057,7 @@ const AyarlarModal: React.FC<Props> = ({
 
         value: b.id,
 
-        label: b.name,
+        label: b.bankaAdi,
 
       })),
 
@@ -1124,11 +1127,11 @@ const AyarlarModal: React.FC<Props> = ({
 
                     className="input"
 
-                    value={b.name}
+                    value={b.bankaAdi}
 
                     onChange={(e) =>
 
-                      handleBankFieldChange(b.id, 'name', e.target.value)
+                      handleBankFieldChange(b.id, 'bankaAdi', e.target.value)
 
                     }
 
@@ -1142,13 +1145,17 @@ const AyarlarModal: React.FC<Props> = ({
 
                     className="input"
 
-                    value={b.accountNo ?? ''}
+                    value={b.hesapAdi.includes(' - ') ? b.hesapAdi.split(' - ')[1] : ''}
 
-                    onChange={(e) =>
+                    onChange={(e) => {
 
-                      handleBankFieldChange(b.id, 'accountNo', e.target.value)
+                      const accountNo = e.target.value;
 
-                    }
+                      handleBankFieldChange(b.id, 'hesapAdi', accountNo ? `${b.bankaAdi} - ${accountNo}` : b.bankaAdi);
+
+                      handleBankFieldChange(b.id, 'kodu', accountNo ? accountNo.substring(0, 4).toUpperCase() : 'BNK');
+
+                    }}
 
                   />
 
@@ -1180,7 +1187,7 @@ const AyarlarModal: React.FC<Props> = ({
 
                     type="number"
 
-                    value={b.openingBalance ?? 0}
+                    value={b.acilisBakiyesi ?? 0}
 
                     onChange={(e) =>
 
@@ -1188,7 +1195,7 @@ const AyarlarModal: React.FC<Props> = ({
 
                         b.id,
 
-                        'openingBalance',
+                        'acilisBakiyesi',
 
                         Number(e.target.value) || 0,
 
@@ -1206,11 +1213,11 @@ const AyarlarModal: React.FC<Props> = ({
 
                     type="checkbox"
 
-                    checked={b.isActive}
+                    checked={b.aktifMi}
 
                     onChange={(e) =>
 
-                      handleBankFieldChange(b.id, 'isActive', e.target.checked)
+                      handleBankFieldChange(b.id, 'aktifMi', e.target.checked)
 
                     }
 
@@ -1224,7 +1231,7 @@ const AyarlarModal: React.FC<Props> = ({
 
                     type="checkbox"
 
-                    checked={!!b.hasChequeBook}
+                    checked={!!b.cekKarnesiVarMi}
 
                     onChange={(e) =>
 
@@ -1232,7 +1239,7 @@ const AyarlarModal: React.FC<Props> = ({
 
                         b.id,
 
-                        'hasChequeBook',
+                        'cekKarnesiVarMi',
 
                         e.target.checked,
 
@@ -1250,11 +1257,11 @@ const AyarlarModal: React.FC<Props> = ({
 
                     type="checkbox"
 
-                    checked={!!b.hasPos}
+                    checked={!!b.posVarMi}
 
                     onChange={(e) =>
 
-                      handleBankFlagChange(b.id, 'hasPos', e.target.checked)
+                      handleBankFlagChange(b.id, 'posVarMi', e.target.checked)
 
                     }
 
@@ -1268,7 +1275,7 @@ const AyarlarModal: React.FC<Props> = ({
 
                     type="checkbox"
 
-                    checked={!!b.hasCreditCard}
+                    checked={!!b.krediKartiVarMi}
 
                     onChange={(e) =>
 
@@ -1276,7 +1283,7 @@ const AyarlarModal: React.FC<Props> = ({
 
                         b.id,
 
-                        'hasCreditCard',
+                        'krediKartiVarMi',
 
                         e.target.checked,
 
@@ -1424,11 +1431,11 @@ const AyarlarModal: React.FC<Props> = ({
 
                     className="input"
 
-                    value={c.name}
+                    value={c.kartAdi}
 
                     onChange={(e) =>
 
-                      handleCreditCardFieldChange(c.id, 'name', e.target.value)
+                      handleCreditCardFieldChange(c.id, 'kartAdi', e.target.value)
 
                     }
 
@@ -1442,7 +1449,7 @@ const AyarlarModal: React.FC<Props> = ({
 
                     className="input"
 
-                    value={c.bankId ?? ''}
+                    value={c.bankaId ?? ''}
 
                     onChange={(e) =>
 
@@ -1450,7 +1457,7 @@ const AyarlarModal: React.FC<Props> = ({
 
                         c.id,
 
-                        'bankId',
+                        'bankaId',
 
                         e.target.value || null,
 
@@ -1512,7 +1519,7 @@ const AyarlarModal: React.FC<Props> = ({
 
                     type="number"
 
-                    value={c.currentDebt ?? 0}
+                    value={c.guncelBorc ?? 0}
 
                     onChange={(e) =>
 
@@ -1520,7 +1527,7 @@ const AyarlarModal: React.FC<Props> = ({
 
                         c.id,
 
-                        'currentDebt',
+                        'guncelBorc',
 
                         Number(e.target.value) || 0,
 
@@ -1540,7 +1547,7 @@ const AyarlarModal: React.FC<Props> = ({
 
                     type="number"
 
-                    value={c.closingDay ?? ''}
+                    value={c.hesapKesimGunu ?? ''}
 
                     onChange={(e) =>
 
@@ -1548,7 +1555,7 @@ const AyarlarModal: React.FC<Props> = ({
 
                         c.id,
 
-                        'closingDay',
+                        'hesapKesimGunu',
 
                         e.target.value
 
@@ -1572,7 +1579,7 @@ const AyarlarModal: React.FC<Props> = ({
 
                     type="number"
 
-                    value={c.dueDay ?? ''}
+                    value={c.sonOdemeGunu ?? ''}
 
                     onChange={(e) =>
 
@@ -1580,7 +1587,7 @@ const AyarlarModal: React.FC<Props> = ({
 
                         c.id,
 
-                        'dueDay',
+                        'sonOdemeGunu',
 
                         e.target.value
 
@@ -1602,7 +1609,7 @@ const AyarlarModal: React.FC<Props> = ({
 
                     type="checkbox"
 
-                    checked={c.isActive}
+                    checked={c.aktifMi}
 
                     onChange={(e) =>
 
@@ -1610,7 +1617,7 @@ const AyarlarModal: React.FC<Props> = ({
 
                         c.id,
 
-                        'isActive',
+                        'aktifMi',
 
                         e.target.checked,
 
@@ -2036,6 +2043,441 @@ const AyarlarModal: React.FC<Props> = ({
 
 
 
+  const renderPosTab = () => {
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [form, setForm] = useState({ bankaId: '', posAdi: '', komisyonOrani: 0.02, aktifMi: true });
+
+    useEffect(() => {
+      if (editingId) {
+        const p = posTerminals.find((x) => x.id === editingId);
+        if (p) setForm({ bankaId: p.bankaId, posAdi: p.posAdi, komisyonOrani: p.komisyonOrani, aktifMi: p.aktifMi });
+      } else {
+        setForm({ bankaId: '', posAdi: '', komisyonOrani: 0.02, aktifMi: true });
+      }
+    }, [editingId, posTerminals]);
+
+    const save = () => {
+      if (!form.bankaId || !form.posAdi) return;
+      setDirty(true);
+      if (editingId) {
+        setPosTerminals(posTerminals.map((p) => (p.id === editingId ? { ...p, ...form } : p)));
+      } else {
+        setPosTerminals([...posTerminals, { id: generateId(), ...form }]);
+      }
+      setEditingId(null);
+    };
+
+    const remove = (id: string) => {
+      setDirty(true);
+      setPosTerminals(posTerminals.filter((p) => p.id !== id));
+    };
+
+    return (
+      <div className="settings-tab">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="max-h-96 overflow-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50">
+                  <th className="text-left px-2 py-1">POS</th>
+                  <th className="text-left px-2 py-1">Banka</th>
+                  <th className="text-left px-2 py-1">Komisyon</th>
+                  <th className="px-2 py-1" />
+                </tr>
+              </thead>
+              <tbody>
+                {posTerminals.map((p) => (
+                  <tr key={p.id} className="border-b hover:bg-slate-50 cursor-pointer" onClick={() => setEditingId(p.id)}>
+                    <td className="px-2 py-1">{p.posAdi}</td>
+                    <td className="px-2 py-1">{banks.find((b) => b.id === p.bankaId)?.bankaAdi || '-'}</td>
+                    <td className="px-2 py-1">{(p.komisyonOrani * 100).toFixed(2)}%</td>
+                    <td className="px-2 py-1 text-right">
+                      <button className="text-rose-600" onClick={(e) => { e.stopPropagation(); remove(p.id); }}>
+                        Sil
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <div className="font-semibold">{editingId ? 'POS Düzenle' : 'Yeni POS'}</div>
+              <button className="text-sm text-indigo-600" onClick={() => setEditingId(null)}>
+                Yeni
+              </button>
+            </div>
+            <FormRow label="Banka" required>
+              <select className="input" value={form.bankaId} onChange={(e) => setForm({ ...form, bankaId: e.target.value })}>
+                <option value="">Seçiniz</option>
+                {banks.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.bankaAdi}
+                  </option>
+                ))}
+              </select>
+            </FormRow>
+            <FormRow label="POS Adı" required>
+              <input className="input" value={form.posAdi} onChange={(e) => setForm({ ...form, posAdi: e.target.value })} />
+            </FormRow>
+            <FormRow label="Komisyon Oranı" required>
+              <input
+                className="input"
+                type="number"
+                step="0.001"
+                value={form.komisyonOrani}
+                onChange={(e) => setForm({ ...form, komisyonOrani: Number(e.target.value) })}
+              />
+            </FormRow>
+            <label className="inline-flex items-center space-x-2 text-sm">
+              <input type="checkbox" checked={form.aktifMi} onChange={(e) => setForm({ ...form, aktifMi: e.target.checked })} />
+              <span>Aktif</span>
+            </label>
+            <div className="flex justify-end">
+              <button className="btn-primary" onClick={save}>
+                Kaydet
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderCustomersTab = () => {
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [form, setForm] = useState<{ kod: string; ad: string; aktifMi: boolean }>({ kod: '', ad: '', aktifMi: true });
+
+    useEffect(() => {
+      if (editingId) {
+        const cust = customers.find((c) => c.id === editingId);
+        if (cust) setForm({ kod: cust.kod, ad: cust.ad, aktifMi: cust.aktifMi });
+      } else {
+        setForm({ kod: nextCode(customers, 'MUST'), ad: '', aktifMi: true });
+      }
+    }, [editingId, customers]);
+
+    const save = () => {
+      if (!form.ad) return;
+      setDirty(true);
+      if (editingId) {
+        setCustomers(customers.map((c) => (c.id === editingId ? { ...c, ad: form.ad, aktifMi: form.aktifMi } : c)));
+      } else {
+        setCustomers([...customers, { id: generateId(), kod: form.kod, ad: form.ad, aktifMi: form.aktifMi }]);
+      }
+      setEditingId(null);
+    };
+
+    const remove = (id: string) => {
+      setDirty(true);
+      setCustomers(customers.filter((c) => c.id !== id));
+    };
+
+    const downloadCsv = () => {
+      const lines = [
+        ['kod', 'ad', 'aktifMi'].join(CSV_DELIMITER),
+        ...customers.map((c) => [c.kod, c.ad, c.aktifMi ? 'true' : 'false'].join(CSV_DELIMITER)),
+      ];
+      const bom = '\uFEFF';
+      const csvContent = bom + lines.join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'customers-template.csv';
+      link.click();
+      URL.revokeObjectURL(url);
+    };
+
+    const uploadCsv = (file: File) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const rawText = (reader.result as string) || '';
+        const cleanText = rawText.replace(/^\uFEFF/, '');
+        const lines = cleanText.split(/\r?\n/).filter((line) => line.trim().length > 0);
+        if (!lines.length) return;
+
+        const header = lines[0].split(/[;,]/).map((h) => h.trim().toLowerCase());
+        if (header.length < 3 || header[0] !== 'kod' || header[1] !== 'ad' || header[2] !== 'aktifmi') {
+          alert('Geçersiz CSV formatı. Başlıklar kod,ad,aktifMi olmalıdır.');
+          return;
+        }
+
+        const parsed: Customer[] = [];
+        const getNext = () => nextCode([...customers, ...parsed], 'MUST');
+
+        lines.slice(1).forEach((line) => {
+          const cols = line.split(/[;,]/);
+          const kodRaw = cols[0]?.trim() ?? '';
+          const adRaw = cols[1]?.trim() ?? '';
+          const aktifMiRaw = cols[2]?.trim() ?? '';
+
+          if (!kodRaw && !adRaw) return;
+          if (!adRaw) return;
+
+          const raw = aktifMiRaw.toLowerCase();
+          let aktifMi: boolean;
+          if (raw === 'false' || raw === '0' || raw === 'hayır' || raw === 'hayir') {
+            aktifMi = false;
+          } else if (raw === 'true' || raw === '1' || raw === 'evet') {
+            aktifMi = true;
+          } else {
+            aktifMi = true;
+          }
+
+          const kod = kodRaw || getNext();
+          parsed.push({ id: generateId(), kod, ad: adRaw, aktifMi });
+        });
+
+        setDirty(true);
+        setCustomers(parsed);
+      };
+      reader.readAsText(file, 'UTF-8');
+    };
+
+    const triggerUpload = () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.csv';
+      input.onchange = (e) => {
+        const target = e.target as HTMLInputElement;
+        if (target.files?.[0]) uploadCsv(target.files[0]);
+      };
+      input.click();
+    };
+
+    return (
+      <div className="settings-tab">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="max-h-96 overflow-auto">
+            <div className="flex justify-between mb-2 text-sm">
+              <button className="text-indigo-600" onClick={downloadCsv}>
+                CSV Şablonu İndir
+              </button>
+              <button className="text-indigo-600" onClick={triggerUpload}>
+                CSV Yükle
+              </button>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50">
+                  <th className="text-left px-2 py-1">Kod</th>
+                  <th className="text-left px-2 py-1">Ad</th>
+                  <th className="text-left px-2 py-1">Aktif</th>
+                  <th className="px-2 py-1" />
+                </tr>
+              </thead>
+              <tbody>
+                {customers.map((c) => (
+                  <tr key={c.id} className="border-b hover:bg-slate-50 cursor-pointer" onClick={() => setEditingId(c.id)}>
+                    <td className="px-2 py-1">{c.kod}</td>
+                    <td className="px-2 py-1">{c.ad}</td>
+                    <td className="px-2 py-1">{c.aktifMi ? 'Evet' : 'Hayır'}</td>
+                    <td className="px-2 py-1 text-right">
+                      <button className="text-rose-600" onClick={(e) => { e.stopPropagation(); remove(c.id); }}>
+                        Sil
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <div className="font-semibold">{editingId ? 'Müşteri Düzenle' : 'Yeni Müşteri'}</div>
+              <button className="text-sm text-indigo-600" onClick={() => setEditingId(null)}>
+                Yeni
+              </button>
+            </div>
+            <FormRow label="Kod">
+              <input className="input" value={form.kod} readOnly />
+            </FormRow>
+            <FormRow label="Ad" required>
+              <input className="input" value={form.ad} onChange={(e) => setForm({ ...form, ad: e.target.value })} />
+            </FormRow>
+            <label className="inline-flex items-center space-x-2 text-sm">
+              <input type="checkbox" checked={form.aktifMi} onChange={(e) => setForm({ ...form, aktifMi: e.target.checked })} />
+              <span>Aktif</span>
+            </label>
+            <div className="flex justify-end">
+              <button className="btn-primary" onClick={save}>
+                Kaydet
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderSuppliersTab = () => {
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [form, setForm] = useState<{ kod: string; ad: string; aktifMi: boolean }>({ kod: '', ad: '', aktifMi: true });
+
+    useEffect(() => {
+      if (editingId) {
+        const sup = suppliers.find((s) => s.id === editingId);
+        if (sup) setForm({ kod: sup.kod, ad: sup.ad, aktifMi: sup.aktifMi });
+      } else {
+        setForm({ kod: nextCode(suppliers, 'TDRK'), ad: '', aktifMi: true });
+      }
+    }, [editingId, suppliers]);
+
+    const save = () => {
+      if (!form.ad) return;
+      setDirty(true);
+      if (editingId) {
+        setSuppliers(suppliers.map((s) => (s.id === editingId ? { ...s, ad: form.ad, aktifMi: form.aktifMi } : s)));
+      } else {
+        setSuppliers([...suppliers, { id: generateId(), kod: form.kod, ad: form.ad, aktifMi: form.aktifMi }]);
+      }
+      setEditingId(null);
+    };
+
+    const remove = (id: string) => {
+      setDirty(true);
+      setSuppliers(suppliers.filter((s) => s.id !== id));
+    };
+
+    const downloadCsv = () => {
+      const lines = [
+        ['kod', 'ad', 'aktifMi'].join(CSV_DELIMITER),
+        ...suppliers.map((s) => [s.kod, s.ad, s.aktifMi ? 'true' : 'false'].join(CSV_DELIMITER)),
+      ];
+      const bom = '\uFEFF';
+      const csvContent = bom + lines.join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'suppliers-template.csv';
+      link.click();
+      URL.revokeObjectURL(url);
+    };
+
+    const uploadCsv = (file: File) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const rawText = (reader.result as string) || '';
+        const cleanText = rawText.replace(/^\uFEFF/, '');
+        const lines = cleanText.split(/\r?\n/).filter((line) => line.trim().length > 0);
+        if (!lines.length) return;
+        const header = lines[0].split(/[;,]/).map((h) => h.trim().toLowerCase());
+        if (header.length < 3 || header[0] !== 'kod' || header[1] !== 'ad' || header[2] !== 'aktifmi') {
+          alert('Geçersiz CSV formatı. Başlıklar kod,ad,aktifMi olmalıdır.');
+          return;
+        }
+
+        const parsed: Supplier[] = [];
+        const getNext = () => nextCode([...suppliers, ...parsed], 'TDRK');
+
+        lines.slice(1).forEach((line) => {
+          const cols = line.split(/[;,]/);
+          const kodRaw = cols[0]?.trim() ?? '';
+          const adRaw = cols[1]?.trim() ?? '';
+          const aktifMiRaw = cols[2]?.trim() ?? '';
+
+          if (!kodRaw && !adRaw) return;
+          if (!adRaw) return;
+
+          const raw = aktifMiRaw.toLowerCase();
+          let aktifMi: boolean;
+          if (raw === 'false' || raw === '0' || raw === 'hayır' || raw === 'hayir') {
+            aktifMi = false;
+          } else if (raw === 'true' || raw === '1' || raw === 'evet') {
+            aktifMi = true;
+          } else {
+            aktifMi = true;
+          }
+
+          const kod = kodRaw || getNext();
+          parsed.push({ id: generateId(), kod, ad: adRaw, aktifMi });
+        });
+
+        setDirty(true);
+        setSuppliers(parsed);
+      };
+      reader.readAsText(file, 'UTF-8');
+    };
+
+    const triggerUpload = () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.csv';
+      input.onchange = (e) => {
+        const target = e.target as HTMLInputElement;
+        if (target.files?.[0]) uploadCsv(target.files[0]);
+      };
+      input.click();
+    };
+
+    return (
+      <div className="settings-tab">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="max-h-96 overflow-auto">
+            <div className="flex justify-between mb-2 text-sm">
+              <button className="text-indigo-600" onClick={downloadCsv}>
+                CSV Şablonu İndir
+              </button>
+              <button className="text-indigo-600" onClick={triggerUpload}>
+                CSV Yükle
+              </button>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50">
+                  <th className="text-left px-2 py-1">Kod</th>
+                  <th className="text-left px-2 py-1">Ad</th>
+                  <th className="text-left px-2 py-1">Aktif</th>
+                  <th className="px-2 py-1" />
+                </tr>
+              </thead>
+              <tbody>
+                {suppliers.map((s) => (
+                  <tr key={s.id} className="border-b hover:bg-slate-50 cursor-pointer" onClick={() => setEditingId(s.id)}>
+                    <td className="px-2 py-1">{s.kod}</td>
+                    <td className="px-2 py-1">{s.ad}</td>
+                    <td className="px-2 py-1">{s.aktifMi ? 'Evet' : 'Hayır'}</td>
+                    <td className="px-2 py-1 text-right">
+                      <button className="text-rose-600" onClick={(e) => { e.stopPropagation(); remove(s.id); }}>
+                        Sil
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <div className="font-semibold">{editingId ? 'Tedarikçi Düzenle' : 'Yeni Tedarikçi'}</div>
+              <button className="text-sm text-indigo-600" onClick={() => setEditingId(null)}>
+                Yeni
+              </button>
+            </div>
+            <FormRow label="Kod">
+              <input className="input" value={form.kod} readOnly />
+            </FormRow>
+            <FormRow label="Ad" required>
+              <input className="input" value={form.ad} onChange={(e) => setForm({ ...form, ad: e.target.value })} />
+            </FormRow>
+            <label className="inline-flex items-center space-x-2 text-sm">
+              <input type="checkbox" checked={form.aktifMi} onChange={(e) => setForm({ ...form, aktifMi: e.target.checked })} />
+              <span>Aktif</span>
+            </label>
+            <div className="flex justify-end">
+              <button className="btn-primary" onClick={save}>
+                Kaydet
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderGlobalTab = () => (
 
     <div className="settings-tab">
@@ -2044,67 +2486,6 @@ const AyarlarModal: React.FC<Props> = ({
 
       <div className="settings-form-grid">
 
-        <label>
-
-          <span>Çek Vadesi Varsayılan Gün Sayısı</span>
-
-          <input
-
-            className="input"
-
-            type="number"
-
-            value={globalForm.defaultChequeDueDays ?? 0}
-
-            onChange={(e) => {
-
-              setDirty(true);
-
-              setGlobalForm((prev) => ({
-
-                ...prev,
-
-                defaultChequeDueDays: Number(e.target.value) || 0,
-
-              }));
-
-            }}
-
-          />
-
-        </label>
-
-
-
-        <label>
-
-          <span>Kasa Defteri Başlangıç Bakiyesi</span>
-
-          <input
-
-            className="input"
-
-            type="number"
-
-            value={globalForm.initialCashBalance ?? 0}
-
-            onChange={(e) => {
-
-              setDirty(true);
-
-              setGlobalForm((prev) => ({
-
-                ...prev,
-
-                initialCashBalance: Number(e.target.value) || 0,
-
-              }));
-
-            }}
-
-          />
-
-        </label>
 
       </div>
 
@@ -2144,6 +2525,18 @@ const AyarlarModal: React.FC<Props> = ({
 
         return renderBanksTab();
 
+      case 'POS':
+
+        return renderPosTab();
+
+      case 'MUSTERI':
+
+        return renderCustomersTab();
+
+      case 'TEDARIKCI':
+
+        return renderSuppliersTab();
+
       case 'KREDI_KARTI':
 
         return renderCardsTab();
@@ -2174,11 +2567,23 @@ const AyarlarModal: React.FC<Props> = ({
 
 
 
+  if (!isOpen) return null;
+
   return (
 
-    <Modal isOpen={isOpen} onClose={handleClose} title="Ayarlar">
+    <div className="modal-backdrop">
 
-      <div className="settings-modal">
+      <div className="modal">
+
+        <div className="flex items-center justify-between mb-4">
+
+          <div className="text-lg font-semibold">Ayarlar</div>
+
+          <button onClick={handleClose}>✕</button>
+
+        </div>
+
+        <div className="settings-modal">
 
         <div className="settings-tabs">
 
@@ -2356,9 +2761,11 @@ const AyarlarModal: React.FC<Props> = ({
 
         </div>
 
+        </div>
+
       </div>
 
-    </Modal>
+    </div>
 
   );
 
