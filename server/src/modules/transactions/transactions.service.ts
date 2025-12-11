@@ -236,6 +236,7 @@ export class TransactionsService {
       customerId: data.customerId ?? null,
       supplierId: data.supplierId ?? null,
       attachmentId: data.attachmentId ?? null,
+      loanInstallmentId: data.loanInstallmentId ?? null,
       createdBy,
     };
 
@@ -494,6 +495,7 @@ export class TransactionsService {
       customerId: transaction.customerId,
       supplierId: transaction.supplierId,
       attachmentId: transaction.attachmentId,
+      loanInstallmentId: transaction.loanInstallmentId,
       createdAt: transaction.createdAt.toISOString(),
       createdBy: transaction.createdBy,
       updatedAt: transaction.updatedAt?.toISOString() || null,

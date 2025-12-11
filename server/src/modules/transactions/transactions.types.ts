@@ -21,6 +21,7 @@ export interface TransactionDto {
   customerId: string | null;
   supplierId: string | null;
   attachmentId: string | null;
+  loanInstallmentId: string | null;
   createdAt: string;
   createdBy: string;
   updatedAt: string | null;
@@ -48,6 +49,7 @@ export interface CreateTransactionDto {
   customerId?: string | null;
   supplierId?: string | null;
   attachmentId?: string | null;
+  loanInstallmentId?: string | null;
 }
 
 export interface UpdateTransactionDto {
@@ -69,6 +71,7 @@ export interface UpdateTransactionDto {
   customerId?: string | null;
   supplierId?: string | null;
   attachmentId?: string | null;
+  loanInstallmentId?: string | null;
 }
 
 export interface TransactionListQuery {

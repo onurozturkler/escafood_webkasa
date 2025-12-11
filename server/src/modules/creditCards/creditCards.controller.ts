@@ -7,6 +7,7 @@ import {
   CreatePaymentDto,
 } from './creditCards.types';
 import { getUserId } from '../../config/auth';
+import { bulkSaveCreditCardSchema } from './creditCards.validation';
 
 const creditCardsService = new CreditCardsService();
 
@@ -100,6 +101,31 @@ export async function createPayment(req: Request, res: Response): Promise<void> 
       return;
     }
     res.status(400).json({ message: error.message || 'Failed to create payment' });
+  }
+}
+
+export async function bulkSave(req: Request, res: Response): Promise<void> {
+  try {
+    const rawPayload = bulkSaveCreditCardSchema.parse(req.body);
+    // Normalize undefined to null for optional fields
+    const payload = rawPayload.map((item) => ({
+      id: item.id,
+      name: item.name,
+      bankId: item.bankId ?? null,
+      limit: item.limit ?? null,
+      closingDay: item.closingDay ?? null,
+      dueDay: item.dueDay ?? null,
+      isActive: item.isActive ?? true,
+    }));
+    const userId = getUserId(req);
+    const cards = await creditCardsService.bulkSaveCreditCards(payload, userId);
+    res.json(cards);
+  } catch (error: any) {
+    if (error.name === 'ZodError') {
+      res.status(400).json({ message: 'Validation error', errors: error.errors });
+      return;
+    }
+    res.status(500).json({ message: error.message || 'Failed to bulk save credit cards' });
   }
 }
 

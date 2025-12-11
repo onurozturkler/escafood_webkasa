@@ -212,7 +212,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
             sonOdemeGunu: card.dueDay ?? 1,
             maskeliKartNo: extras.maskeliKartNo, // Load from localStorage
             aktifMi: card.isActive,
-            sonEkstreBorcu: extras.sonEkstreBorcu, // Load from localStorage
+            sonEkstreBorcu: card.sonEkstreBorcu ?? 0, // Use from backend
             guncelBorc: card.currentDebt, // Use backend currentDebt
           };
         });
@@ -1031,7 +1031,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
                   sonOdemeGunu: card.dueDay ?? 1,
                   maskeliKartNo: extras.maskeliKartNo,
                   aktifMi: card.isActive,
-                  sonEkstreBorcu: extras.sonEkstreBorcu,
+                  sonEkstreBorcu: card.sonEkstreBorcu ?? 0, // Use from backend
                   guncelBorc: card.currentDebt, // FIX: Use updated currentDebt from backend
                 };
               });
@@ -1372,7 +1372,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
             sonOdemeGunu: card.dueDay ?? 1,
             maskeliKartNo: extras.maskeliKartNo,
             aktifMi: card.isActive,
-            sonEkstreBorcu: extras.sonEkstreBorcu,
+            sonEkstreBorcu: card.sonEkstreBorcu ?? 0, // Use from backend
             guncelBorc: card.currentDebt, // BUG 6 FIX: Use updated currentDebt from backend
           };
         });
@@ -1478,7 +1478,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
             sonOdemeGunu: card.dueDay ?? 1,
             maskeliKartNo: extras.maskeliKartNo,
             aktifMi: card.isActive,
-            sonEkstreBorcu: extras.sonEkstreBorcu,
+            sonEkstreBorcu: card.sonEkstreBorcu ?? 0, // Use from backend
             guncelBorc: card.currentDebt, // BUG 6 FIX: Use updated currentDebt from backend
           };
         });
@@ -2050,7 +2050,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
                 sonOdemeGunu: card.dueDay ?? 1,
                 maskeliKartNo: extras.maskeliKartNo,
                 aktifMi: card.isActive,
-                sonEkstreBorcu: extras.sonEkstreBorcu,
+                sonEkstreBorcu: card.sonEkstreBorcu ?? 0, // Use from backend
                 guncelBorc: card.currentDebt,
               };
             });

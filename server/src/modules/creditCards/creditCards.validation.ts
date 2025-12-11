@@ -8,6 +8,8 @@ export const createCreditCardSchema = z.object({
   limit: z.number().nonnegative('Limit negatif olamaz').nullable().optional(),
   closingDay: z.number().int().min(1).max(31).nullable().optional(),
   dueDay: z.number().int().min(1).max(31).nullable().optional(),
+  sonEkstreBorcu: z.number().nonnegative('Son ekstre borcu negatif olamaz').optional().default(0),
+  manualGuncelBorc: z.number().nonnegative('Güncel borç negatif olamaz').nullable().optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -17,6 +19,8 @@ export const updateCreditCardSchema = z.object({
   limit: z.number().nonnegative().nullable().optional(),
   closingDay: z.number().int().min(1).max(31).nullable().optional(),
   dueDay: z.number().int().min(1).max(31).nullable().optional(),
+  sonEkstreBorcu: z.number().nonnegative().optional(),
+  manualGuncelBorc: z.number().nonnegative().nullable().optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -50,4 +54,20 @@ export const createPaymentSchema = z.object({
     path: ['bankId'],
   }
 );
+
+export const bulkSaveCreditCardSchema = z.array(
+  z.object({
+    id: z.string(), // Can be tmp-* for new cards or UUID for existing
+    name: z.string().trim().min(1, 'Kart adı gereklidir'),
+    bankId: z.string().uuid().nullable().optional(),
+    limit: z.number().nonnegative('Limit negatif olamaz').nullable().optional(),
+    closingDay: z.number().int().min(1).max(31).nullable().optional(),
+    dueDay: z.number().int().min(1).max(31).nullable().optional(),
+    sonEkstreBorcu: z.number().nonnegative('Son ekstre borcu negatif olamaz').optional().default(0),
+    manualGuncelBorc: z.number().nonnegative('Güncel borç negatif olamaz').nullable().optional(),
+    isActive: z.boolean().optional().default(true),
+  })
+);
+
+export type BulkSaveCreditCardInput = z.infer<typeof bulkSaveCreditCardSchema>;
 

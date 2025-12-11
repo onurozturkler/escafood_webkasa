@@ -7,8 +7,19 @@ import { Loan } from '../models/loan';
 import { PosTerminal } from '../models/pos';
 import { GlobalSettings } from '../models/settings';
 import { apiDelete, apiGet, apiPost, apiPut } from '../utils/api';
-import { generateId } from '../utils/id';
-import FormRow from '../components/FormRow';
+import {
+  loadBankFlagsFromStorage,
+  saveBankFlagsToStorage,
+  loadCardExtrasFromStorage,
+  type BankFlagMap,
+} from '../utils/settingsUtils';
+import BanksTab from '../components/settings/BanksTab';
+import PosTab from '../components/settings/PosTab';
+import CustomersTab from '../components/settings/CustomersTab';
+import SuppliersTab from '../components/settings/SuppliersTab';
+import CreditCardsTab from '../components/settings/CreditCardsTab';
+import LoansTab from '../components/settings/LoansTab';
+import GlobalTab from '../components/settings/GlobalTab';
 
 export type SettingsTabKey =
   | 'BANKALAR'
@@ -40,45 +51,6 @@ interface Props {
   setGlobalSettings: (settings: GlobalSettings) => void;
 }
 
-type BankFlagMap = Record<
-  string,
-  {
-    cekKarnesiVarMi?: boolean;
-    posVarMi?: boolean;
-    krediKartiVarMi?: boolean;
-  }
->;
-
-const BANK_FLAGS_STORAGE_KEY = 'esca-webkasa-bank-flags';
-const CSV_DELIMITER = ';';
-
-function loadBankFlagsFromStorage(): BankFlagMap {
-  try {
-    const raw = localStorage.getItem(BANK_FLAGS_STORAGE_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw) as BankFlagMap;
-  } catch {
-    return {};
-  }
-}
-
-function saveBankFlagsToStorage(flags: BankFlagMap) {
-  try {
-    localStorage.setItem(BANK_FLAGS_STORAGE_KEY, JSON.stringify(flags));
-  } catch {
-    // Cache hatası uygulamayı bozmamalı
-  }
-}
-
-function nextCode(items: { kod: string }[], prefix: string) {
-  const max = items.reduce((acc, item) => {
-    const num = parseInt(item.kod.replace(`${prefix}-`, ''), 10);
-    return Number.isNaN(num) ? acc : Math.max(acc, num);
-  }, 0);
-  const next = String(max + 1).padStart(4, '0');
-  return `${prefix}-${next}`;
-}
-
 const AyarlarModal: React.FC<Props> = ({
   isOpen,
   onClose,
@@ -103,61 +75,15 @@ const AyarlarModal: React.FC<Props> = ({
   const [loading, setLoading] = useState(false);
   const [dirty, setDirty] = useState(false);
 
-  // Local state for editing
+  // Local state for editing (banks, cards, loans need backend sync)
   const [localBanks, setLocalBanks] = useState<BankMaster[]>([]);
   const [localCreditCards, setLocalCreditCards] = useState<CreditCard[]>([]);
   const [localLoans, setLocalLoans] = useState<Loan[]>([]);
   const [globalForm, setGlobalForm] = useState<GlobalSettings>(globalSettings);
   const [bankFlags, setBankFlags] = useState<BankFlagMap>({});
 
-  // Tab-specific form states
-  const [posEditingId, setPosEditingId] = useState<string | null>(null);
-  const [posForm, setPosForm] = useState({ bankaId: '', posAdi: '', komisyonOrani: 0.02, aktifMi: true });
-
-  const [customerEditingId, setCustomerEditingId] = useState<string | null>(null);
-  const [customerForm, setCustomerForm] = useState<{ kod: string; ad: string; aktifMi: boolean }>({
-    kod: '',
-    ad: '',
-    aktifMi: true,
-  });
-
-  const [supplierEditingId, setSupplierEditingId] = useState<string | null>(null);
-  const [supplierForm, setSupplierForm] = useState<{ kod: string; ad: string; aktifMi: boolean }>({
-    kod: '',
-    ad: '',
-    aktifMi: true,
-  });
-
   // ===== Effects =====
-  // Sync tab forms with selected items
-  useEffect(() => {
-    if (posEditingId) {
-      const p = posTerminals.find((x) => x.id === posEditingId);
-      if (p) setPosForm({ bankaId: p.bankaId, posAdi: p.posAdi, komisyonOrani: p.komisyonOrani, aktifMi: p.aktifMi });
-    } else {
-      setPosForm({ bankaId: '', posAdi: '', komisyonOrani: 0.02, aktifMi: true });
-    }
-  }, [posEditingId, posTerminals]);
-
-  useEffect(() => {
-    if (customerEditingId) {
-      const cust = customers.find((c) => c.id === customerEditingId);
-      if (cust) setCustomerForm({ kod: cust.kod, ad: cust.ad, aktifMi: cust.aktifMi });
-    } else {
-      setCustomerForm({ kod: nextCode(customers, 'MUST'), ad: '', aktifMi: true });
-    }
-  }, [customerEditingId, customers]);
-
-  useEffect(() => {
-    if (supplierEditingId) {
-      const sup = suppliers.find((s) => s.id === supplierEditingId);
-      if (sup) setSupplierForm({ kod: sup.kod, ad: sup.ad, aktifMi: sup.aktifMi });
-    } else {
-      setSupplierForm({ kod: nextCode(suppliers, 'TDRK'), ad: '', aktifMi: true });
-    }
-  }, [supplierEditingId, suppliers]);
-
-  // Fetch data when modal opens
+  // Sync localBanks with banks prop when modal opens
   useEffect(() => {
     if (!isOpen) return;
 
@@ -199,7 +125,11 @@ const AyarlarModal: React.FC<Props> = ({
 
         // Map banks
         const mappedBanks: BankMaster[] = backendBanks.map((b) => {
-          const flags = flagsFromStorage[b.id] || { cekKarnesiVarMi: false, posVarMi: false, krediKartiVarMi: false };
+          const flags = flagsFromStorage[b.id] || {
+            cekKarnesiVarMi: false,
+            posVarMi: false,
+            krediKartiVarMi: false,
+          };
           return {
             id: b.id,
             bankaAdi: b.name,
@@ -215,11 +145,7 @@ const AyarlarModal: React.FC<Props> = ({
         });
 
         // Map credit cards with localStorage extras
-        const cardExtrasKey = 'esca-webkasa-card-extras';
-        const savedExtras = localStorage.getItem(cardExtrasKey);
-        const cardExtras: Record<string, { sonEkstreBorcu: number; asgariOran: number; maskeliKartNo: string }> =
-          savedExtras ? JSON.parse(savedExtras) : {};
-
+        const cardExtras = loadCardExtrasFromStorage();
         const mappedCards: CreditCard[] = backendCards.map((c) => {
           const limit = c.limit;
           const availableLimit = c.availableLimit;
@@ -243,25 +169,25 @@ const AyarlarModal: React.FC<Props> = ({
         });
 
         setLocalBanks(mappedBanks);
-        setCustomers(customers);
-        setSuppliers(suppliers);
         setLocalCreditCards(mappedCards);
         setLocalLoans(backendLoans);
         setBankFlags(flagsFromStorage);
-
         setGlobalForm(globalSettings);
 
         // Update parent state
         setBanks(mappedBanks);
         setCreditCards(mappedCards);
         setLoans(backendLoans);
+      } catch (error) {
+        console.error('Error fetching settings data:', error);
+        alert('Ayarlar yüklenirken bir hata oluştu.');
       } finally {
         setLoading(false);
       }
     };
 
     fetchAll();
-  }, [isOpen, setBanks, setCreditCards, setLoans, customers, suppliers, globalSettings]);
+  }, [isOpen, setBanks, setCreditCards, setLoans, globalSettings]);
 
   // ===== Handlers =====
   const handleClose = () => {
@@ -271,14 +197,16 @@ const AyarlarModal: React.FC<Props> = ({
     onClose();
   };
 
+  const handleDirty = () => setDirty(true);
+
   // Bank handlers
   const handleBankFieldChange = (bankId: string, field: keyof BankMaster, value: string | number | boolean) => {
-    setDirty(true);
+    handleDirty();
     setLocalBanks((prev) => prev.map((b) => (b.id === bankId ? { ...b, [field]: value } : b)));
   };
 
   const handleBankFlagChange = (bankId: string, field: keyof BankFlagMap[string], value: boolean) => {
-    setDirty(true);
+    handleDirty();
     setBankFlags((prev) => {
       const updated: BankFlagMap = {
         ...prev,
@@ -306,7 +234,8 @@ const AyarlarModal: React.FC<Props> = ({
   };
 
   const handleAddBank = () => {
-    setDirty(true);
+    handleDirty();
+
     const newBank: BankMaster = {
       id: `tmp-${Date.now()}`,
       bankaAdi: '',
@@ -319,6 +248,7 @@ const AyarlarModal: React.FC<Props> = ({
       posVarMi: false,
       krediKartiVarMi: false,
     };
+
     setLocalBanks((prev) => [...prev, newBank]);
   };
 
@@ -329,13 +259,14 @@ const AyarlarModal: React.FC<Props> = ({
     if (!bank.id.startsWith('tmp-')) {
       await apiDelete(`/api/banks/${bank.id}`);
     }
-    setDirty(true);
+    handleDirty();
     setLocalBanks((prev) => prev.filter((b) => b.id !== bank.id));
   };
 
   const handleSaveBanks = async () => {
     setLoading(true);
     try {
+      // Prepare payload for bulk save
       const payload = localBanks.map((b) => ({
         id: b.id,
         name: b.bankaAdi,
@@ -345,6 +276,7 @@ const AyarlarModal: React.FC<Props> = ({
         isActive: b.aktifMi,
       }));
 
+      // Save to backend
       const saved = await apiPost<
         Array<{
           id: string;
@@ -356,9 +288,13 @@ const AyarlarModal: React.FC<Props> = ({
         }>
       >('/api/banks/bulk-save', payload);
 
+      // Extract and save bank flags to localStorage
       const flagsMap: BankFlagMap = {};
       for (const b of localBanks) {
-        flagsMap[b.id] = {
+        // Use saved bank ID (backend may have changed tmp-* to real UUID)
+        const savedBank = saved.find((s) => s.name === b.bankaAdi) || saved.find((s, idx) => idx === localBanks.indexOf(b));
+        const bankId = savedBank?.id || b.id;
+        flagsMap[bankId] = {
           cekKarnesiVarMi: !!b.cekKarnesiVarMi,
           posVarMi: !!b.posVarMi,
           krediKartiVarMi: !!b.krediKartiVarMi,
@@ -367,6 +303,7 @@ const AyarlarModal: React.FC<Props> = ({
       saveBankFlagsToStorage(flagsMap);
       setBankFlags(flagsMap);
 
+      // Map saved banks back to BankMaster format
       const mappedBanks: BankMaster[] = saved.map((b) => {
         const f = flagsMap[b.id] || {};
         return {
@@ -383,9 +320,14 @@ const AyarlarModal: React.FC<Props> = ({
         };
       });
 
+      // Update both local and parent state
       setLocalBanks(mappedBanks);
       setBanks(mappedBanks);
       setDirty(false);
+    } catch (error: any) {
+      console.error('Banks save error:', error);
+      const errorMessage = error?.message || 'Bankalar kaydedilirken bir hata oluştu.';
+      alert(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -397,12 +339,12 @@ const AyarlarModal: React.FC<Props> = ({
     field: keyof CreditCard,
     value: string | number | boolean | null
   ) => {
-    setDirty(true);
+    handleDirty();
     setLocalCreditCards((prev) => prev.map((c) => (c.id === cardId ? { ...c, [field]: value } : c)));
   };
 
   const handleAddCreditCard = () => {
-    setDirty(true);
+    handleDirty();
     const newCard: CreditCard = {
       id: `tmp-${Date.now()}`,
       bankaId: '',
@@ -428,7 +370,7 @@ const AyarlarModal: React.FC<Props> = ({
     if (!card.id.startsWith('tmp-')) {
       await apiDelete(`/api/credit-cards/${card.id}`);
     }
-    setDirty(true);
+    handleDirty();
     setLocalCreditCards((prev) => prev.filter((c) => c.id !== card.id));
   };
 
@@ -439,11 +381,12 @@ const AyarlarModal: React.FC<Props> = ({
         id: c.id,
         name: c.kartAdi,
         bankId: c.bankaId || null,
-        limit: c.limit ?? 0,
+        limit: c.limit ?? null,
         closingDay: c.hesapKesimGunu ?? null,
         dueDay: c.sonOdemeGunu ?? null,
+        sonEkstreBorcu: c.sonEkstreBorcu ?? 0,
+        manualGuncelBorc: c.guncelBorc ?? null,
         isActive: c.aktifMi,
-        currentDebt: c.guncelBorc ?? 0,
       }));
 
       const saved = await apiPost<
@@ -454,6 +397,8 @@ const AyarlarModal: React.FC<Props> = ({
           limit: number | null;
           closingDay: number | null;
           dueDay: number | null;
+          sonEkstreBorcu: number;
+          manualGuncelBorc: number | null;
           isActive: boolean;
           currentDebt: number;
           availableLimit: number | null;
@@ -462,12 +407,8 @@ const AyarlarModal: React.FC<Props> = ({
         }>
       >('/api/credit-cards/bulk-save', payload);
 
-      // Load credit card extras from localStorage
-      const cardExtrasKey = 'esca-webkasa-card-extras';
-      const savedExtras = localStorage.getItem(cardExtrasKey);
-      const cardExtras: Record<string, { sonEkstreBorcu: number; asgariOran: number; maskeliKartNo: string }> =
-        savedExtras ? JSON.parse(savedExtras) : {};
-
+      // Load and save credit card extras (only for asgariOran and maskeliKartNo)
+      const cardExtras = loadCardExtrasFromStorage();
       const mapped: CreditCard[] = saved.map((c) => {
         const limit = c.limit;
         const availableLimit = c.availableLimit;
@@ -485,7 +426,7 @@ const AyarlarModal: React.FC<Props> = ({
           sonOdemeGunu: c.dueDay ?? 1,
           maskeliKartNo: extras.maskeliKartNo,
           aktifMi: c.isActive,
-          sonEkstreBorcu: extras.sonEkstreBorcu,
+          sonEkstreBorcu: c.sonEkstreBorcu, // Use from backend, not localStorage
           guncelBorc: c.currentDebt,
         };
       });
@@ -493,6 +434,10 @@ const AyarlarModal: React.FC<Props> = ({
       setLocalCreditCards(mapped);
       setCreditCards(mapped);
       setDirty(false);
+    } catch (error: any) {
+      console.error('Credit cards save error:', error);
+      const errorMessage = error?.message || 'Kredi kartları kaydedilirken bir hata oluştu.';
+      alert(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -500,12 +445,13 @@ const AyarlarModal: React.FC<Props> = ({
 
   // Loan handlers
   const handleLoanFieldChange = (loanId: string, field: keyof Loan, value: string | number | boolean) => {
-    setDirty(true);
+    handleDirty();
     setLocalLoans((prev) => prev.map((l) => (l.id === loanId ? { ...l, [field]: value } : l)));
   };
 
   const handleAddLoan = () => {
-    setDirty(true);
+    handleDirty();
+
     const newLoan: Loan = {
       id: `tmp-${Date.now()}`,
       name: '',
@@ -517,6 +463,7 @@ const AyarlarModal: React.FC<Props> = ({
       bsmvRate: 0,
       isActive: true,
     };
+
     setLocalLoans((prev) => [...prev, newLoan]);
   };
 
@@ -527,7 +474,7 @@ const AyarlarModal: React.FC<Props> = ({
     if (!loan.id.startsWith('tmp-')) {
       await apiDelete(`/api/loans/${loan.id}`);
     }
-    setDirty(true);
+    handleDirty();
     setLocalLoans((prev) => prev.filter((l) => l.id !== loan.id));
   };
 
@@ -535,17 +482,52 @@ const AyarlarModal: React.FC<Props> = ({
     setLoading(true);
     try {
       for (const loan of localLoans) {
+        // Validate required fields
+        if (!loan.name || loan.name.trim().length === 0) {
+          alert(`"${loan.name || '(İsimsiz)'}" kredisi için kredi adı zorunludur.`);
+          return;
+        }
+        if (!loan.bankId || loan.bankId.trim().length === 0) {
+          alert(`"${loan.name}" kredisi için banka seçimi zorunludur.`);
+          return;
+        }
+        if (!loan.totalAmount || loan.totalAmount <= 0) {
+          alert(`"${loan.name}" kredisi için toplam tutar pozitif bir değer olmalıdır.`);
+          return;
+        }
+        if (!loan.installmentCount || loan.installmentCount <= 0) {
+          alert(`"${loan.name}" kredisi için taksit sayısı pozitif bir değer olmalıdır.`);
+          return;
+        }
+        if (!loan.firstInstallmentDate || loan.firstInstallmentDate.trim().length === 0) {
+          alert(`"${loan.name}" kredisi için ilk taksit tarihi zorunludur.`);
+          return;
+        }
+        if (loan.annualInterestRate < 0) {
+          alert(`"${loan.name}" kredisi için yıllık faiz oranı negatif olamaz.`);
+          return;
+        }
+        if (loan.bsmvRate < 0) {
+          alert(`"${loan.name}" kredisi için BSMV oranı negatif olamaz.`);
+          return;
+        }
+
         if (loan.id.startsWith('tmp-')) {
-          const { id: _, ...createPayload } = loan;
+          const { id, createdAt, createdBy, updatedAt, updatedBy, deletedAt, deletedBy, bank, installments, ...createPayload } = loan;
           await apiPost<Loan>('/api/loans', createPayload);
         } else {
-          await apiPut<Loan>(`/api/loans/${loan.id}`, loan);
+          const { id, createdAt, createdBy, deletedAt, deletedBy, bank, installments, ...updatePayload } = loan;
+          await apiPut<Loan>(`/api/loans/${loan.id}`, updatePayload);
         }
       }
       const saved = await apiGet<Loan[]>('/api/loans');
       setLocalLoans(saved);
       setLoans(saved);
       setDirty(false);
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Krediler kaydedilirken bir hata oluştu.';
+      alert(errorMessage);
+      console.error('Error saving loans:', error);
     } finally {
       setLoading(false);
     }
@@ -558,205 +540,13 @@ const AyarlarModal: React.FC<Props> = ({
       const saved = await apiPut<GlobalSettings>('/api/settings/global', globalForm);
       setGlobalSettings(saved);
       setDirty(false);
+    } catch (error: any) {
+      console.error('Global settings save error:', error);
+      const errorMessage = error?.message || 'Global ayarlar kaydedilirken bir hata oluştu.';
+      alert(errorMessage);
     } finally {
       setLoading(false);
     }
-  };
-
-  // POS handlers
-  const handlePosSave = () => {
-    if (!posForm.bankaId || !posForm.posAdi) return;
-    setDirty(true);
-    if (posEditingId) {
-      setPosTerminals(posTerminals.map((p) => (p.id === posEditingId ? { ...p, ...posForm } : p)));
-    } else {
-      setPosTerminals([...posTerminals, { id: generateId(), ...posForm }]);
-    }
-    setPosEditingId(null);
-  };
-
-  const handlePosRemove = (id: string) => {
-    setDirty(true);
-    setPosTerminals(posTerminals.filter((p) => p.id !== id));
-  };
-
-  // Customer handlers
-  const handleCustomerSave = () => {
-    if (!customerForm.ad) return;
-    setDirty(true);
-    if (customerEditingId) {
-      setCustomers(customers.map((c) => (c.id === customerEditingId ? { ...c, ad: customerForm.ad, aktifMi: customerForm.aktifMi } : c)));
-    } else {
-      setCustomers([...customers, { id: generateId(), kod: customerForm.kod, ad: customerForm.ad, aktifMi: customerForm.aktifMi }]);
-    }
-    setCustomerEditingId(null);
-  };
-
-  const handleCustomerRemove = (id: string) => {
-    setDirty(true);
-    setCustomers(customers.filter((c) => c.id !== id));
-  };
-
-  const handleCustomerCsvDownload = () => {
-    const lines = [
-      ['kod', 'ad', 'aktifMi'].join(CSV_DELIMITER),
-      ...customers.map((c) => [c.kod, c.ad, c.aktifMi ? 'true' : 'false'].join(CSV_DELIMITER)),
-    ];
-    const bom = '\uFEFF';
-    const csvContent = bom + lines.join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'customers-template.csv';
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleCustomerCsvUpload = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const rawText = (reader.result as string) || '';
-      const cleanText = rawText.replace(/^\uFEFF/, '');
-      const lines = cleanText.split(/\r?\n/).filter((line) => line.trim().length > 0);
-      if (!lines.length) return;
-
-      const header = lines[0].split(/[;,]/).map((h) => h.trim().toLowerCase());
-      if (header.length < 3 || header[0] !== 'kod' || header[1] !== 'ad' || header[2] !== 'aktifmi') {
-        alert('Geçersiz CSV formatı. Başlıklar kod,ad,aktifMi olmalıdır.');
-        return;
-      }
-
-      const parsed: Customer[] = [];
-      const getNext = () => nextCode([...customers, ...parsed], 'MUST');
-
-      lines.slice(1).forEach((line) => {
-        const cols = line.split(/[;,]/);
-        const kodRaw = cols[0]?.trim() ?? '';
-        const adRaw = cols[1]?.trim() ?? '';
-        const aktifMiRaw = cols[2]?.trim() ?? '';
-
-        if (!kodRaw && !adRaw) return;
-        if (!adRaw) return;
-
-        const raw = aktifMiRaw.toLowerCase();
-        let aktifMi: boolean;
-        if (raw === 'false' || raw === '0' || raw === 'hayır' || raw === 'hayir') {
-          aktifMi = false;
-        } else if (raw === 'true' || raw === '1' || raw === 'evet') {
-          aktifMi = true;
-        } else {
-          aktifMi = true;
-        }
-
-        const kod = kodRaw || getNext();
-        parsed.push({ id: generateId(), kod, ad: adRaw, aktifMi });
-      });
-
-      setDirty(true);
-      setCustomers(parsed);
-    };
-    reader.readAsText(file, 'UTF-8');
-  };
-
-  const handleCustomerCsvTrigger = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.csv';
-    input.onchange = (e) => {
-      const target = e.target as HTMLInputElement;
-      if (target.files?.[0]) handleCustomerCsvUpload(target.files[0]);
-    };
-    input.click();
-  };
-
-  // Supplier handlers
-  const handleSupplierSave = () => {
-    if (!supplierForm.ad) return;
-    setDirty(true);
-    if (supplierEditingId) {
-      setSuppliers(suppliers.map((s) => (s.id === supplierEditingId ? { ...s, ad: supplierForm.ad, aktifMi: supplierForm.aktifMi } : s)));
-    } else {
-      setSuppliers([...suppliers, { id: generateId(), kod: supplierForm.kod, ad: supplierForm.ad, aktifMi: supplierForm.aktifMi }]);
-    }
-    setSupplierEditingId(null);
-  };
-
-  const handleSupplierRemove = (id: string) => {
-    setDirty(true);
-    setSuppliers(suppliers.filter((s) => s.id !== id));
-  };
-
-  const handleSupplierCsvDownload = () => {
-    const lines = [
-      ['kod', 'ad', 'aktifMi'].join(CSV_DELIMITER),
-      ...suppliers.map((s) => [s.kod, s.ad, s.aktifMi ? 'true' : 'false'].join(CSV_DELIMITER)),
-    ];
-    const bom = '\uFEFF';
-    const csvContent = bom + lines.join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'suppliers-template.csv';
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleSupplierCsvUpload = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const rawText = (reader.result as string) || '';
-      const cleanText = rawText.replace(/^\uFEFF/, '');
-      const lines = cleanText.split(/\r?\n/).filter((line) => line.trim().length > 0);
-      if (!lines.length) return;
-      const header = lines[0].split(/[;,]/).map((h) => h.trim().toLowerCase());
-      if (header.length < 3 || header[0] !== 'kod' || header[1] !== 'ad' || header[2] !== 'aktifmi') {
-        alert('Geçersiz CSV formatı. Başlıklar kod,ad,aktifMi olmalıdır.');
-        return;
-      }
-
-      const parsed: Supplier[] = [];
-      const getNext = () => nextCode([...suppliers, ...parsed], 'TDRK');
-
-      lines.slice(1).forEach((line) => {
-        const cols = line.split(/[;,]/);
-        const kodRaw = cols[0]?.trim() ?? '';
-        const adRaw = cols[1]?.trim() ?? '';
-        const aktifMiRaw = cols[2]?.trim() ?? '';
-
-        if (!kodRaw && !adRaw) return;
-        if (!adRaw) return;
-
-        const raw = aktifMiRaw.toLowerCase();
-        let aktifMi: boolean;
-        if (raw === 'false' || raw === '0' || raw === 'hayır' || raw === 'hayir') {
-          aktifMi = false;
-        } else if (raw === 'true' || raw === '1' || raw === 'evet') {
-          aktifMi = true;
-        } else {
-          aktifMi = true;
-        }
-
-        const kod = kodRaw || getNext();
-        parsed.push({ id: generateId(), kod, ad: adRaw, aktifMi });
-      });
-
-      setDirty(true);
-      setSuppliers(parsed);
-    };
-    reader.readAsText(file, 'UTF-8');
-  };
-
-  const handleSupplierCsvTrigger = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.csv';
-    input.onchange = (e) => {
-      const target = e.target as HTMLInputElement;
-      if (target.files?.[0]) handleSupplierCsvUpload(target.files[0]);
-    };
-    input.click();
   };
 
   // ===== Memoized Values =====
@@ -765,614 +555,7 @@ const AyarlarModal: React.FC<Props> = ({
     [localBanks]
   );
 
-  // ===== Render Functions =====
-  const renderBanksTab = () => (
-    <div className="settings-tab">
-      <div className="settings-tab-header">
-        <h3>Bankalar</h3>
-        <button type="button" className="btn btn-secondary" onClick={handleAddBank}>
-          Yeni Banka
-        </button>
-      </div>
-
-      <div className="settings-table-wrapper">
-        <table className="settings-table">
-          <thead>
-            <tr>
-              <th>Banka Adı</th>
-              <th>Hesap No</th>
-              <th>IBAN</th>
-              <th>Açılış Bakiyesi</th>
-              <th>Aktif</th>
-              <th>Çek Karnesi</th>
-              <th>POS</th>
-              <th>Kredi Kartı</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {localBanks.map((b) => (
-              <tr key={b.id}>
-                <td>
-                  <input
-                    className="input"
-                    value={b.bankaAdi}
-                    onChange={(e) => handleBankFieldChange(b.id, 'bankaAdi', e.target.value)}
-                  />
-                </td>
-                <td>
-                  <input
-                    className="input"
-                    value={b.hesapAdi.includes(' - ') ? b.hesapAdi.split(' - ')[1] : ''}
-                    onChange={(e) => {
-                      const accountNo = e.target.value;
-                      handleBankFieldChange(b.id, 'hesapAdi', accountNo ? `${b.bankaAdi} - ${accountNo}` : b.bankaAdi);
-                      handleBankFieldChange(b.id, 'kodu', accountNo ? accountNo.substring(0, 4).toUpperCase() : 'BNK');
-                    }}
-                  />
-                </td>
-                <td>
-                  <input
-                    className="input"
-                    value={b.iban ?? ''}
-                    onChange={(e) => handleBankFieldChange(b.id, 'iban', e.target.value)}
-                  />
-                </td>
-                <td>
-                  <input
-                    className="input"
-                    type="number"
-                    value={b.acilisBakiyesi ?? 0}
-                    onChange={(e) => handleBankFieldChange(b.id, 'acilisBakiyesi', Number(e.target.value) || 0)}
-                  />
-                </td>
-                <td className="text-center">
-                  <input
-                    type="checkbox"
-                    checked={b.aktifMi}
-                    onChange={(e) => handleBankFieldChange(b.id, 'aktifMi', e.target.checked)}
-                  />
-                </td>
-                <td className="text-center">
-                  <input
-                    type="checkbox"
-                    checked={!!b.cekKarnesiVarMi}
-                    onChange={(e) => handleBankFlagChange(b.id, 'cekKarnesiVarMi', e.target.checked)}
-                  />
-                </td>
-                <td className="text-center">
-                  <input
-                    type="checkbox"
-                    checked={!!b.posVarMi}
-                    onChange={(e) => handleBankFlagChange(b.id, 'posVarMi', e.target.checked)}
-                  />
-                </td>
-                <td className="text-center">
-                  <input
-                    type="checkbox"
-                    checked={!!b.krediKartiVarMi}
-                    onChange={(e) => handleBankFlagChange(b.id, 'krediKartiVarMi', e.target.checked)}
-                  />
-                </td>
-                <td>
-                  <button className="btn btn-danger btn-sm" onClick={() => handleDeleteBank(b)}>
-                    Sil
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {localBanks.length === 0 && (
-              <tr>
-                <td colSpan={9} className="text-center text-muted">
-                  Kayıtlı banka yok.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="settings-actions">
-        <button type="button" className="btn btn-primary" disabled={loading} onClick={handleSaveBanks}>
-          Kaydet
-        </button>
-      </div>
-    </div>
-  );
-
-  const renderPosTab = () => (
-    <div className="settings-tab">
-      <div className="settings-tab-header">
-        <h3>POS</h3>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="max-h-96 overflow-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50">
-                <th className="text-left px-2 py-1">POS</th>
-                <th className="text-left px-2 py-1">Banka</th>
-                <th className="text-left px-2 py-1">Komisyon</th>
-                <th className="px-2 py-1" />
-              </tr>
-            </thead>
-            <tbody>
-              {posTerminals.map((p) => (
-                <tr key={p.id} className="border-b hover:bg-slate-50 cursor-pointer" onClick={() => setPosEditingId(p.id)}>
-                  <td className="px-2 py-1">{p.posAdi}</td>
-                  <td className="px-2 py-1">{banks.find((b) => b.id === p.bankaId)?.bankaAdi || '-'}</td>
-                  <td className="px-2 py-1">{(p.komisyonOrani * 100).toFixed(2)}%</td>
-                  <td className="px-2 py-1 text-right">
-                    <button className="text-rose-600" onClick={(e) => { e.stopPropagation(); handlePosRemove(p.id); }}>
-                      Sil
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <div className="font-semibold">{posEditingId ? 'POS Düzenle' : 'Yeni POS'}</div>
-            <button className="text-sm text-indigo-600" onClick={() => setPosEditingId(null)}>
-              Yeni
-            </button>
-          </div>
-          <FormRow label="Banka" required>
-            <select className="input" value={posForm.bankaId} onChange={(e) => setPosForm({ ...posForm, bankaId: e.target.value })}>
-              <option value="">Seçiniz</option>
-              {banks.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.bankaAdi}
-                </option>
-              ))}
-            </select>
-          </FormRow>
-          <FormRow label="POS Adı" required>
-            <input className="input" value={posForm.posAdi} onChange={(e) => setPosForm({ ...posForm, posAdi: e.target.value })} />
-          </FormRow>
-          <FormRow label="Komisyon Oranı" required>
-            <input
-              className="input"
-              type="number"
-              step="0.001"
-              value={posForm.komisyonOrani}
-              onChange={(e) => setPosForm({ ...posForm, komisyonOrani: Number(e.target.value) })}
-            />
-          </FormRow>
-          <label className="inline-flex items-center space-x-2 text-sm">
-            <input type="checkbox" checked={posForm.aktifMi} onChange={(e) => setPosForm({ ...posForm, aktifMi: e.target.checked })} />
-            <span>Aktif</span>
-          </label>
-          <div className="flex justify-end">
-            <button className="btn-primary" onClick={handlePosSave}>
-              Kaydet
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderCustomersTab = () => (
-    <div className="settings-tab">
-      <div className="settings-tab-header">
-        <h3>Müşteriler</h3>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="max-h-96 overflow-auto">
-          <div className="flex justify-between mb-2 text-sm">
-            <button className="text-indigo-600" onClick={handleCustomerCsvDownload}>
-              CSV Şablonu İndir
-            </button>
-            <button className="text-indigo-600" onClick={handleCustomerCsvTrigger}>
-              CSV Yükle
-            </button>
-          </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50">
-                <th className="text-left px-2 py-1">Kod</th>
-                <th className="text-left px-2 py-1">Ad</th>
-                <th className="text-left px-2 py-1">Aktif</th>
-                <th className="px-2 py-1" />
-              </tr>
-            </thead>
-            <tbody>
-              {customers.map((c) => (
-                <tr key={c.id} className="border-b hover:bg-slate-50 cursor-pointer" onClick={() => setCustomerEditingId(c.id)}>
-                  <td className="px-2 py-1">{c.kod}</td>
-                  <td className="px-2 py-1">{c.ad}</td>
-                  <td className="px-2 py-1">{c.aktifMi ? 'Evet' : 'Hayır'}</td>
-                  <td className="px-2 py-1 text-right">
-                    <button className="text-rose-600" onClick={(e) => { e.stopPropagation(); handleCustomerRemove(c.id); }}>
-                      Sil
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <div className="font-semibold">{customerEditingId ? 'Müşteri Düzenle' : 'Yeni Müşteri'}</div>
-            <button className="text-sm text-indigo-600" onClick={() => setCustomerEditingId(null)}>
-              Yeni
-            </button>
-          </div>
-          <FormRow label="Kod">
-            <input className="input" value={customerForm.kod} readOnly />
-          </FormRow>
-          <FormRow label="Ad" required>
-            <input className="input" value={customerForm.ad} onChange={(e) => setCustomerForm({ ...customerForm, ad: e.target.value })} />
-          </FormRow>
-          <label className="inline-flex items-center space-x-2 text-sm">
-            <input type="checkbox" checked={customerForm.aktifMi} onChange={(e) => setCustomerForm({ ...customerForm, aktifMi: e.target.checked })} />
-            <span>Aktif</span>
-          </label>
-          <div className="flex justify-end">
-            <button className="btn-primary" onClick={handleCustomerSave}>
-              Kaydet
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderSuppliersTab = () => (
-    <div className="settings-tab">
-      <div className="settings-tab-header">
-        <h3>Tedarikçiler</h3>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="max-h-96 overflow-auto">
-          <div className="flex justify-between mb-2 text-sm">
-            <button className="text-indigo-600" onClick={handleSupplierCsvDownload}>
-              CSV Şablonu İndir
-            </button>
-            <button className="text-indigo-600" onClick={handleSupplierCsvTrigger}>
-              CSV Yükle
-            </button>
-          </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50">
-                <th className="text-left px-2 py-1">Kod</th>
-                <th className="text-left px-2 py-1">Ad</th>
-                <th className="text-left px-2 py-1">Aktif</th>
-                <th className="px-2 py-1" />
-              </tr>
-            </thead>
-            <tbody>
-              {suppliers.map((s) => (
-                <tr key={s.id} className="border-b hover:bg-slate-50 cursor-pointer" onClick={() => setSupplierEditingId(s.id)}>
-                  <td className="px-2 py-1">{s.kod}</td>
-                  <td className="px-2 py-1">{s.ad}</td>
-                  <td className="px-2 py-1">{s.aktifMi ? 'Evet' : 'Hayır'}</td>
-                  <td className="px-2 py-1 text-right">
-                    <button className="text-rose-600" onClick={(e) => { e.stopPropagation(); handleSupplierRemove(s.id); }}>
-                      Sil
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <div className="font-semibold">{supplierEditingId ? 'Tedarikçi Düzenle' : 'Yeni Tedarikçi'}</div>
-            <button className="text-sm text-indigo-600" onClick={() => setSupplierEditingId(null)}>
-              Yeni
-            </button>
-          </div>
-          <FormRow label="Kod">
-            <input className="input" value={supplierForm.kod} readOnly />
-          </FormRow>
-          <FormRow label="Ad" required>
-            <input className="input" value={supplierForm.ad} onChange={(e) => setSupplierForm({ ...supplierForm, ad: e.target.value })} />
-          </FormRow>
-          <label className="inline-flex items-center space-x-2 text-sm">
-            <input type="checkbox" checked={supplierForm.aktifMi} onChange={(e) => setSupplierForm({ ...supplierForm, aktifMi: e.target.checked })} />
-            <span>Aktif</span>
-          </label>
-          <div className="flex justify-end">
-            <button className="btn-primary" onClick={handleSupplierSave}>
-              Kaydet
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderCardsTab = () => (
-    <div className="settings-tab">
-      <div className="settings-tab-header">
-        <h3>Kredi Kartları</h3>
-        <button type="button" className="btn btn-secondary" onClick={handleAddCreditCard}>
-          Yeni Kart
-        </button>
-      </div>
-
-      <div className="settings-table-wrapper">
-        <table className="settings-table">
-          <thead>
-            <tr>
-              <th>Kart Adı</th>
-              <th>Banka</th>
-              <th>Limit</th>
-              <th>Güncel Borç</th>
-              <th>Hesap Kesim Günü</th>
-              <th>Son Ödeme Günü</th>
-              <th>Aktif</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {localCreditCards.map((c) => (
-              <tr key={c.id}>
-                <td>
-                  <input
-                    className="input"
-                    value={c.kartAdi}
-                    onChange={(e) => handleCreditCardFieldChange(c.id, 'kartAdi', e.target.value)}
-                  />
-                </td>
-                <td>
-                  <select
-                    className="input"
-                    value={c.bankaId ?? ''}
-                    onChange={(e) => handleCreditCardFieldChange(c.id, 'bankaId', e.target.value || null)}
-                  >
-                    <option value="">Seçilmedi</option>
-                    {bankOptions.map((b) => (
-                      <option key={b.value} value={b.value}>
-                        {b.label}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td>
-                  <input
-                    className="input"
-                    type="number"
-                    value={c.limit ?? 0}
-                    onChange={(e) => handleCreditCardFieldChange(c.id, 'limit', Number(e.target.value) || 0)}
-                  />
-                </td>
-                <td>
-                  <input
-                    className="input"
-                    type="number"
-                    value={c.guncelBorc ?? 0}
-                    onChange={(e) => handleCreditCardFieldChange(c.id, 'guncelBorc', Number(e.target.value) || 0)}
-                  />
-                </td>
-                <td>
-                  <input
-                    className="input"
-                    type="number"
-                    value={c.hesapKesimGunu ?? ''}
-                    onChange={(e) =>
-                      handleCreditCardFieldChange(c.id, 'hesapKesimGunu', e.target.value ? Number(e.target.value) || null : null)
-                    }
-                  />
-                </td>
-                <td>
-                  <input
-                    className="input"
-                    type="number"
-                    value={c.sonOdemeGunu ?? ''}
-                    onChange={(e) =>
-                      handleCreditCardFieldChange(c.id, 'sonOdemeGunu', e.target.value ? Number(e.target.value) || null : null)
-                    }
-                  />
-                </td>
-                <td className="text-center">
-                  <input
-                    type="checkbox"
-                    checked={c.aktifMi}
-                    onChange={(e) => handleCreditCardFieldChange(c.id, 'aktifMi', e.target.checked)}
-                  />
-                </td>
-                <td>
-                  <button className="btn btn-danger btn-sm" onClick={() => handleDeleteCreditCard(c)}>
-                    Sil
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {localCreditCards.length === 0 && (
-              <tr>
-                <td colSpan={8} className="text-center text-muted">
-                  Kayıtlı kart yok.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="settings-actions">
-        <button type="button" className="btn btn-primary" disabled={loading} onClick={handleSaveCreditCards}>
-          Kaydet
-        </button>
-      </div>
-    </div>
-  );
-
-  const renderLoansTab = () => (
-    <div className="settings-tab">
-      <div className="settings-tab-header">
-        <h3>Krediler</h3>
-        <button type="button" className="btn btn-secondary" onClick={handleAddLoan}>
-          Yeni Kredi
-        </button>
-      </div>
-
-      <div className="settings-table-wrapper">
-        <table className="settings-table">
-          <thead>
-            <tr>
-              <th>Kredi Adı</th>
-              <th>Banka</th>
-              <th>Toplam Tutar</th>
-              <th>Taksit Sayısı</th>
-              <th>İlk Taksit Tarihi</th>
-              <th>Yıllık Faiz Oranı (%)</th>
-              <th>BSMV Oranı (%)</th>
-              <th>Aktif</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {localLoans.map((l) => (
-              <tr key={l.id}>
-                <td>
-                  <input
-                    className="input"
-                    value={l.name}
-                    onChange={(e) => handleLoanFieldChange(l.id, 'name', e.target.value)}
-                  />
-                </td>
-                <td>
-                  <select
-                    className="input"
-                    value={l.bankId}
-                    onChange={(e) => handleLoanFieldChange(l.id, 'bankId', e.target.value)}
-                  >
-                    <option value="">Seçilmedi</option>
-                    {bankOptions.map((b) => (
-                      <option key={b.value} value={b.value}>
-                        {b.label}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td>
-                  <input
-                    className="input"
-                    type="number"
-                    value={l.totalAmount ?? 0}
-                    onChange={(e) => handleLoanFieldChange(l.id, 'totalAmount', Number(e.target.value) || 0)}
-                  />
-                </td>
-                <td>
-                  <input
-                    className="input"
-                    type="number"
-                    value={l.installmentCount ?? 0}
-                    onChange={(e) => handleLoanFieldChange(l.id, 'installmentCount', Number(e.target.value) || 0)}
-                  />
-                </td>
-                <td>
-                  <input
-                    className="input"
-                    type="date"
-                    value={l.firstInstallmentDate}
-                    onChange={(e) => handleLoanFieldChange(l.id, 'firstInstallmentDate', e.target.value)}
-                  />
-                </td>
-                <td>
-                  <input
-                    className="input"
-                    type="number"
-                    step="0.01"
-                    value={l.annualInterestRate ?? 0}
-                    onChange={(e) => handleLoanFieldChange(l.id, 'annualInterestRate', Number(e.target.value) || 0)}
-                  />
-                </td>
-                <td>
-                  <input
-                    className="input"
-                    type="number"
-                    step="0.01"
-                    value={l.bsmvRate ?? 0}
-                    onChange={(e) => handleLoanFieldChange(l.id, 'bsmvRate', Number(e.target.value) || 0)}
-                  />
-                </td>
-                <td className="text-center">
-                  <input
-                    type="checkbox"
-                    checked={l.isActive}
-                    onChange={(e) => handleLoanFieldChange(l.id, 'isActive', e.target.checked)}
-                  />
-                </td>
-                <td>
-                  <button className="btn btn-danger btn-sm" onClick={() => handleDeleteLoan(l)}>
-                    Sil
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {localLoans.length === 0 && (
-              <tr>
-                <td colSpan={9} className="text-center text-muted">
-                  Kayıtlı kredi yok.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="settings-actions">
-        <button type="button" className="btn btn-primary" disabled={loading} onClick={handleSaveLoans}>
-          Kaydet
-        </button>
-      </div>
-    </div>
-  );
-
-  const renderGlobalTab = () => (
-    <div className="settings-tab">
-      <div className="settings-tab-header">
-        <h3>Global Ayarlar</h3>
-      </div>
-
-      <div className="settings-form-grid"></div>
-
-      <div className="settings-actions">
-        <button type="button" className="btn btn-primary" disabled={loading} onClick={handleSaveGlobal}>
-          Kaydet
-        </button>
-      </div>
-    </div>
-  );
-
-  const renderTab = () => {
-    switch (activeTab) {
-      case 'BANKALAR':
-        return renderBanksTab();
-      case 'POS':
-        return renderPosTab();
-      case 'MUSTERI':
-        return renderCustomersTab();
-      case 'TEDARIKCI':
-        return renderSuppliersTab();
-      case 'KREDI_KARTI':
-        return renderCardsTab();
-      case 'KREDILER':
-        return renderLoansTab();
-      case 'GLOBAL':
-        return renderGlobalTab();
-      default:
-        return (
-          <div className="settings-tab">
-            <p>Bu sekme henüz uygulanmadı.</p>
-          </div>
-        );
-    }
-  };
-
-  // ===== Main Render =====
+  // ===== Render =====
   if (!isOpen) return null;
 
   return (
@@ -1448,7 +631,57 @@ const AyarlarModal: React.FC<Props> = ({
                 <span>Yükleniyor...</span>
               </div>
             )}
-            {renderTab()}
+            {activeTab === 'BANKALAR' && (
+              <BanksTab
+                banks={localBanks}
+                bankFlags={bankFlags}
+                loading={loading}
+                onFieldChange={handleBankFieldChange}
+                onFlagChange={handleBankFlagChange}
+                onAdd={handleAddBank}
+                onDelete={handleDeleteBank}
+                onSave={handleSaveBanks}
+              />
+            )}
+            {activeTab === 'POS' && (
+              <PosTab
+                terminals={posTerminals}
+                banks={banks}
+                onSetTerminals={setPosTerminals}
+                onDirty={handleDirty}
+              />
+            )}
+            {activeTab === 'MUSTERI' && (
+              <CustomersTab customers={customers} onSetCustomers={setCustomers} onDirty={handleDirty} />
+            )}
+            {activeTab === 'TEDARIKCI' && (
+              <SuppliersTab suppliers={suppliers} onSetSuppliers={setSuppliers} onDirty={handleDirty} />
+            )}
+            {activeTab === 'KREDI_KARTI' && (
+              <CreditCardsTab
+                cards={localCreditCards}
+                bankOptions={bankOptions}
+                loading={loading}
+                onFieldChange={handleCreditCardFieldChange}
+                onAdd={handleAddCreditCard}
+                onDelete={handleDeleteCreditCard}
+                onSave={handleSaveCreditCards}
+              />
+            )}
+            {activeTab === 'KREDILER' && (
+              <LoansTab
+                loans={localLoans}
+                bankOptions={bankOptions}
+                loading={loading}
+                onFieldChange={handleLoanFieldChange}
+                onAdd={handleAddLoan}
+                onDelete={handleDeleteLoan}
+                onSave={handleSaveLoans}
+              />
+            )}
+            {activeTab === 'GLOBAL' && (
+              <GlobalTab settings={globalForm} loading={loading} onSave={handleSaveGlobal} />
+            )}
           </div>
         </div>
       </div>

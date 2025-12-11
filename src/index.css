@@ -95,7 +95,7 @@ button {
 }
 
 .settings-table td.text-center {
-  text-align: center;
+  text-align: center !important;
 }
 
 .settings-table td.text-center input[type="checkbox"] {

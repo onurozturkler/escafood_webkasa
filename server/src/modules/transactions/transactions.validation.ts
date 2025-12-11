@@ -106,6 +106,7 @@ export const createTransactionSchema = z
     customerId: optionalUuidStringCreate,
     supplierId: optionalUuidStringCreate,
     attachmentId: optionalUuidStringCreate,
+    loanInstallmentId: optionalUuidStringCreate,
   })
   .refine(
     (data) => {
@@ -250,6 +251,7 @@ export const updateTransactionSchema = z.object({
   customerId: z.string().uuid().nullable().optional(),
   supplierId: z.string().uuid().nullable().optional(),
   attachmentId: z.string().uuid().nullable().optional(),
+  loanInstallmentId: z.string().uuid().nullable().optional(),
 });
 
 // Helper to transform empty strings to undefined and validate date format

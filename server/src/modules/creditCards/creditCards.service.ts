@@ -82,7 +82,13 @@ export class CreditCardsService {
     });
 
     return cards.map((card) => {
-      const currentDebt = card.operations.reduce((sum: number, op) => sum + Number(op.amount), 0);
+      // Calculate current debt: use manualGuncelBorc if set, otherwise calculate from operations
+      const calculatedDebt = card.operations.reduce((sum: number, op) => sum + Number(op.amount), 0);
+      const manualGuncelBorc = card.manualGuncelBorc !== null && card.manualGuncelBorc !== undefined 
+        ? Number(card.manualGuncelBorc) 
+        : null;
+      const currentDebt = manualGuncelBorc !== null ? manualGuncelBorc : calculatedDebt;
+      
       const lastOperationDate =
         card.operations.length > 0 ? card.operations[0].isoDate : null;
 
@@ -90,6 +96,10 @@ export class CreditCardsService {
       // Test case: limit=250000 should return 250000
       const limit = card.limit !== null && card.limit !== undefined ? Number(card.limit) : null;
       const availableLimit = limit !== null ? limit - currentDebt : null;
+      
+      const sonEkstreBorcu = card.sonEkstreBorcu !== null && card.sonEkstreBorcu !== undefined 
+        ? Number(card.sonEkstreBorcu) 
+        : 0;
 
       return {
         id: card.id,
@@ -98,6 +108,8 @@ export class CreditCardsService {
         limit,
         closingDay: card.closingDay,
         dueDay: card.dueDay,
+        sonEkstreBorcu,
+        manualGuncelBorc,
         isActive: card.isActive,
         createdAt: card.createdAt.toISOString(),
         createdBy: card.createdBy,
@@ -145,7 +157,13 @@ export class CreditCardsService {
       return null;
     }
 
-    const currentDebt = card.operations.reduce((sum: number, op) => sum + Number(op.amount), 0);
+    // Calculate current debt: use manualGuncelBorc if set, otherwise calculate from operations
+    const calculatedDebt = card.operations.reduce((sum: number, op) => sum + Number(op.amount), 0);
+    const manualGuncelBorc = card.manualGuncelBorc !== null && card.manualGuncelBorc !== undefined 
+      ? Number(card.manualGuncelBorc) 
+      : null;
+    const currentDebt = manualGuncelBorc !== null ? manualGuncelBorc : calculatedDebt;
+    
     const lastOperationDate =
       card.operations.length > 0 ? card.operations[0].isoDate : null;
 
@@ -158,6 +176,10 @@ export class CreditCardsService {
     // A limit of 0 is a valid value and should not be converted to null
     const limit = card.limit !== null && card.limit !== undefined ? Number(card.limit) : null;
     const availableLimit = limit !== null ? limit - currentDebt : null;
+    
+    const sonEkstreBorcu = card.sonEkstreBorcu !== null && card.sonEkstreBorcu !== undefined 
+      ? Number(card.sonEkstreBorcu) 
+      : 0;
 
     return {
       id: card.id,
@@ -166,6 +188,8 @@ export class CreditCardsService {
       limit,
       closingDay: card.closingDay,
       dueDay: card.dueDay,
+      sonEkstreBorcu,
+      manualGuncelBorc,
       isActive: card.isActive,
       createdAt: card.createdAt.toISOString(),
       createdBy: card.createdBy,
@@ -212,6 +236,8 @@ export class CreditCardsService {
         limit: data.limit !== undefined ? data.limit : null,
         closingDay: data.closingDay || null,
         dueDay: data.dueDay || null,
+        sonEkstreBorcu: data.sonEkstreBorcu !== undefined ? data.sonEkstreBorcu : 0,
+        manualGuncelBorc: data.manualGuncelBorc !== undefined ? data.manualGuncelBorc : null,
         isActive: data.isActive !== undefined ? data.isActive : true,
         createdBy,
       },
@@ -228,8 +254,14 @@ export class CreditCardsService {
     // BUG 1 FIX: Preserve null limit correctly for new cards
     // Test case: limit=250000 should return 250000
     const limit = card.limit !== null && card.limit !== undefined ? Number(card.limit) : null;
-    const currentDebt = 0; // New card has no operations yet
+    const manualGuncelBorc = card.manualGuncelBorc !== null && card.manualGuncelBorc !== undefined 
+      ? Number(card.manualGuncelBorc) 
+      : null;
+    const currentDebt = manualGuncelBorc !== null ? manualGuncelBorc : 0; // New card has no operations yet
     const availableLimit = limit !== null ? limit - currentDebt : null;
+    const sonEkstreBorcu = card.sonEkstreBorcu !== null && card.sonEkstreBorcu !== undefined 
+      ? Number(card.sonEkstreBorcu) 
+      : 0;
 
     return {
       id: card.id,
@@ -238,6 +270,8 @@ export class CreditCardsService {
       limit,
       closingDay: card.closingDay,
       dueDay: card.dueDay,
+      sonEkstreBorcu,
+      manualGuncelBorc,
       isActive: card.isActive,
       createdAt: card.createdAt.toISOString(),
       createdBy: card.createdBy,
@@ -280,6 +314,8 @@ export class CreditCardsService {
       data: {
         ...data,
         limit: data.limit !== undefined ? data.limit : card.limit, // Preserve existing if not provided, otherwise use new value (including null)
+        sonEkstreBorcu: data.sonEkstreBorcu !== undefined ? data.sonEkstreBorcu : card.sonEkstreBorcu,
+        manualGuncelBorc: data.manualGuncelBorc !== undefined ? data.manualGuncelBorc : card.manualGuncelBorc,
         updatedBy,
         updatedAt: new Date(),
       },
@@ -305,7 +341,13 @@ export class CreditCardsService {
       },
     });
 
-    const currentDebt = updated.operations.reduce((sum: number, op) => sum + Number(op.amount), 0);
+    // Calculate current debt: use manualGuncelBorc if set, otherwise calculate from operations
+    const calculatedDebt = updated.operations.reduce((sum: number, op) => sum + Number(op.amount), 0);
+    const manualGuncelBorc = updated.manualGuncelBorc !== null && updated.manualGuncelBorc !== undefined 
+      ? Number(updated.manualGuncelBorc) 
+      : null;
+    const currentDebt = manualGuncelBorc !== null ? manualGuncelBorc : calculatedDebt;
+    
     const lastOperationDate =
       updated.operations.length > 0 ? updated.operations[0].isoDate : null;
 
@@ -314,6 +356,10 @@ export class CreditCardsService {
     // Test case: limit=null should return null
     const limit = updated.limit !== null && updated.limit !== undefined ? Number(updated.limit) : null;
     const availableLimit = limit !== null ? limit - currentDebt : null;
+    
+    const sonEkstreBorcu = updated.sonEkstreBorcu !== null && updated.sonEkstreBorcu !== undefined 
+      ? Number(updated.sonEkstreBorcu) 
+      : 0;
 
     return {
       id: updated.id,
@@ -322,6 +368,8 @@ export class CreditCardsService {
       limit,
       closingDay: updated.closingDay,
       dueDay: updated.dueDay,
+      sonEkstreBorcu,
+      manualGuncelBorc,
       isActive: updated.isActive,
       createdAt: updated.createdAt.toISOString(),
       createdBy: updated.createdBy,
@@ -515,6 +563,180 @@ export class CreditCardsService {
         outgoing: Number(transaction.outgoing),
       },
     };
+  }
+
+  /**
+   * Bulk save credit cards (create or update multiple cards)
+   */
+  async bulkSaveCreditCards(
+    payload: Array<{
+      id: string;
+      name: string;
+      bankId?: string | null;
+      limit?: number | null;
+      closingDay?: number | null;
+      dueDay?: number | null;
+      sonEkstreBorcu?: number;
+      manualGuncelBorc?: number | null;
+      isActive?: boolean;
+    }>,
+    userId: string
+  ): Promise<CreditCardDto[]> {
+    const results: CreditCardDto[] = [];
+
+    for (const item of payload) {
+      const isNew = item.id.startsWith('tmp-');
+
+      if (isNew) {
+        // Create new credit card
+        const created = await prisma.creditCard.create({
+          data: {
+            name: item.name,
+            bankId: item.bankId ?? null,
+            limit: item.limit ?? null,
+            closingDay: item.closingDay ?? null,
+            dueDay: item.dueDay ?? null,
+            sonEkstreBorcu: item.sonEkstreBorcu ?? 0,
+            manualGuncelBorc: item.manualGuncelBorc ?? null,
+            isActive: item.isActive ?? true,
+            createdBy: userId,
+          },
+          include: {
+            bank: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+            operations: {
+              where: {
+                deletedAt: null,
+              },
+              select: {
+                isoDate: true,
+                amount: true,
+              },
+              orderBy: {
+                isoDate: 'desc',
+              },
+            },
+          },
+        });
+
+        const limit = created.limit !== null && created.limit !== undefined ? Number(created.limit) : null;
+        const manualGuncelBorc = created.manualGuncelBorc !== null && created.manualGuncelBorc !== undefined 
+          ? Number(created.manualGuncelBorc) 
+          : null;
+        const currentDebt = manualGuncelBorc !== null ? manualGuncelBorc : 0; // New card has no operations yet
+        const availableLimit = limit !== null ? limit - currentDebt : null;
+        const sonEkstreBorcu = created.sonEkstreBorcu !== null && created.sonEkstreBorcu !== undefined 
+          ? Number(created.sonEkstreBorcu) 
+          : 0;
+
+        results.push({
+          id: created.id,
+          name: created.name,
+          bankId: created.bankId,
+          limit,
+          closingDay: created.closingDay,
+          dueDay: created.dueDay,
+          sonEkstreBorcu,
+          manualGuncelBorc,
+          isActive: created.isActive,
+          createdAt: created.createdAt.toISOString(),
+          createdBy: created.createdBy,
+          updatedAt: created.updatedAt?.toISOString() || null,
+          updatedBy: created.updatedBy || null,
+          deletedAt: created.deletedAt?.toISOString() || null,
+          deletedBy: created.deletedBy || null,
+          currentDebt,
+          availableLimit,
+          lastOperationDate: null,
+          bank: created.bank || null,
+        });
+      } else {
+        // Update existing credit card
+        const existing = await prisma.creditCard.findUnique({ where: { id: item.id } });
+        if (!existing || existing.deletedAt) {
+          continue; // Skip deleted or non-existent cards
+        }
+
+        const updated = await prisma.creditCard.update({
+          where: { id: item.id },
+          data: {
+            name: item.name,
+            bankId: item.bankId !== undefined ? item.bankId : existing.bankId,
+            limit: item.limit !== undefined ? item.limit : existing.limit,
+            closingDay: item.closingDay !== undefined ? item.closingDay : existing.closingDay,
+            dueDay: item.dueDay !== undefined ? item.dueDay : existing.dueDay,
+            sonEkstreBorcu: item.sonEkstreBorcu !== undefined ? item.sonEkstreBorcu : existing.sonEkstreBorcu,
+            manualGuncelBorc: item.manualGuncelBorc !== undefined ? item.manualGuncelBorc : existing.manualGuncelBorc,
+            isActive: item.isActive !== undefined ? item.isActive : existing.isActive,
+            updatedAt: new Date(),
+            updatedBy: userId,
+          },
+          include: {
+            bank: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+            operations: {
+              where: {
+                deletedAt: null,
+              },
+              select: {
+                isoDate: true,
+                amount: true,
+              },
+              orderBy: {
+                isoDate: 'desc',
+              },
+            },
+          },
+        });
+
+        // Calculate current debt: use manualGuncelBorc if set, otherwise calculate from operations
+        const calculatedDebt = updated.operations.reduce((sum: number, op) => sum + Number(op.amount), 0);
+        const manualGuncelBorc = updated.manualGuncelBorc !== null && updated.manualGuncelBorc !== undefined 
+          ? Number(updated.manualGuncelBorc) 
+          : null;
+        const currentDebt = manualGuncelBorc !== null ? manualGuncelBorc : calculatedDebt;
+        
+        const lastOperationDate =
+          updated.operations.length > 0 ? updated.operations[0].isoDate : null;
+        const limit = updated.limit !== null && updated.limit !== undefined ? Number(updated.limit) : null;
+        const availableLimit = limit !== null ? limit - currentDebt : null;
+        const sonEkstreBorcu = updated.sonEkstreBorcu !== null && updated.sonEkstreBorcu !== undefined 
+          ? Number(updated.sonEkstreBorcu) 
+          : 0;
+
+        results.push({
+          id: updated.id,
+          name: updated.name,
+          bankId: updated.bankId,
+          limit,
+          closingDay: updated.closingDay,
+          dueDay: updated.dueDay,
+          sonEkstreBorcu,
+          manualGuncelBorc,
+          isActive: updated.isActive,
+          createdAt: updated.createdAt.toISOString(),
+          createdBy: updated.createdBy,
+          updatedAt: updated.updatedAt?.toISOString() || null,
+          updatedBy: updated.updatedBy || null,
+          deletedAt: updated.deletedAt?.toISOString() || null,
+          deletedBy: updated.deletedBy || null,
+          currentDebt,
+          availableLimit,
+          lastOperationDate,
+          bank: updated.bank || null,
+        });
+      }
+    }
+
+    return results;
   }
 }
 

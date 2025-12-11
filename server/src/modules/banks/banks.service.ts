@@ -173,4 +173,103 @@ export class BanksService {
 
     return deleted;
   }
+
+  async bulkSaveBanks(
+    payload: Array<{
+      id: string;
+      name: string;
+      accountNo: string | null;
+      iban: string | null;
+      openingBalance?: number;
+      isActive?: boolean;
+    }>,
+    userId: string
+  ): Promise<BankWithBalance[]> {
+    const results: BankWithBalance[] = [];
+
+    for (const item of payload) {
+      const isNew = item.id.startsWith('tmp-');
+      const openingBalance = item.openingBalance ?? 0;
+
+      if (isNew) {
+        // Create new bank
+        const created = await prisma.bank.create({
+          data: {
+            name: item.name,
+            accountNo: item.accountNo ?? null,
+            iban: item.iban ?? null,
+            isActive: item.isActive ?? true,
+            createdBy: userId,
+          },
+        });
+
+        // Create opening balance transaction if needed
+        // Note: openingBalance from frontend is the same as initialBalance
+        if (openingBalance !== 0) {
+          const today = new Date().toISOString().split('T')[0];
+          await createBankOpeningBalanceTransaction(created.id, openingBalance, today, userId);
+        }
+
+        // Calculate current balance
+        const balanceGroups = await prisma.transaction.groupBy({
+          by: ['bankId'],
+          _sum: { bankDelta: true },
+          where: {
+            deletedAt: null,
+            bankId: created.id,
+          },
+        });
+
+        const currentBalance =
+          balanceGroups.length > 0 && balanceGroups[0]._sum?.bankDelta
+            ? Number(balanceGroups[0]._sum.bankDelta)
+            : 0;
+
+        results.push({
+          ...created,
+          currentBalance,
+        });
+      } else {
+        // Update existing bank
+        const existing = await prisma.bank.findUnique({ where: { id: item.id } });
+        if (!existing || existing.deletedAt) {
+          continue; // Skip deleted or non-existent banks
+        }
+
+        const updated = await prisma.bank.update({
+          where: { id: item.id },
+          data: {
+            name: item.name,
+            accountNo: item.accountNo ?? null,
+            iban: item.iban ?? null,
+            isActive: item.isActive ?? true,
+            updatedAt: new Date(),
+            updatedBy: userId,
+          },
+        });
+
+        // Calculate current balance
+        const balanceGroups = await prisma.transaction.groupBy({
+          by: ['bankId'],
+          _sum: { bankDelta: true },
+          where: {
+            deletedAt: null,
+            bankId: updated.id,
+          },
+        });
+
+        const currentBalance =
+          balanceGroups.length > 0 && balanceGroups[0]._sum?.bankDelta
+            ? Number(balanceGroups[0]._sum.bankDelta)
+            : 0;
+
+        results.push({
+          ...updated,
+          currentBalance,
+        });
+      }
+    }
+
+    return results;
+  }
 }

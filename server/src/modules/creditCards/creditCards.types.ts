@@ -7,6 +7,8 @@ export interface CreditCardDto {
   limit: number | null;
   closingDay: number | null;
   dueDay: number | null;
+  sonEkstreBorcu: number; // Last statement balance (from DB)
+  manualGuncelBorc: number | null; // Manual current debt override (null = calculate from operations)
   isActive: boolean;
   createdAt: string;
   createdBy: string;
@@ -15,7 +17,7 @@ export interface CreditCardDto {
   deletedAt: string | null;
   deletedBy: string | null;
   // Computed fields
-  currentDebt: number;
+  currentDebt: number; // Calculated: manualGuncelBorc ?? (sum of operations)
   availableLimit: number | null;
   lastOperationDate: string | null;
   // Relations (optional, populated when needed)
@@ -47,6 +49,8 @@ export interface CreateCreditCardDto {
   limit?: number | null;
   closingDay?: number | null;
   dueDay?: number | null;
+  sonEkstreBorcu?: number;
+  manualGuncelBorc?: number | null;
   isActive?: boolean;
 }
 
@@ -56,6 +60,8 @@ export interface UpdateCreditCardDto {
   limit?: number | null;
   closingDay?: number | null;
   dueDay?: number | null;
+  sonEkstreBorcu?: number;
+  manualGuncelBorc?: number | null;
   isActive?: boolean;
 }
 

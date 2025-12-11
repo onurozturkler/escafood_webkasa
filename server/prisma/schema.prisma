@@ -150,6 +150,9 @@ model CreditCard {
   installmentBsmvRate     Decimal?  @db.Decimal(18, 4) // BSMV rate (e.g., 0.05 for 5%)
   installmentCount        Int? // Number of installments
   firstInstallmentDate    String? // ISO date string (YYYY-MM-DD)
+  // Debt tracking fields
+  sonEkstreBorcu          Decimal?  @default(0) @db.Decimal(18, 2) // Last statement balance (manual entry)
+  manualGuncelBorc        Decimal?  @db.Decimal(18, 2) // Manual current debt override (null = calculate from operations)
   isActive                Boolean   @default(true)
   createdAt               DateTime  @default(now())
   createdBy               String

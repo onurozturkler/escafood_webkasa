@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { ZodError } from 'zod';
 import { BanksService } from './banks.service';
-import { bankIdParamSchema, createBankSchema, deleteBankSchema, updateBankSchema } from './banks.validation';
+import { bankIdParamSchema, bulkSaveBankSchema, createBankSchema, deleteBankSchema, updateBankSchema } from './banks.validation';
 import { getUserId } from '../../config/auth';
 
 const service = new BanksService();
@@ -58,6 +58,26 @@ export class BanksController {
       const deletedBy = getUserId(req);
       const bank = await service.softDeleteBank(params.id, deletedBy);
       res.json(bank);
+    } catch (error) {
+      handleError(res, error);
+    }
+  }
+
+  async bulkSave(req: Request, res: Response) {
+    try {
+      const rawPayload = bulkSaveBankSchema.parse(req.body);
+      // Normalize undefined to null for accountNo and iban
+      const payload = rawPayload.map((item) => ({
+        id: item.id,
+        name: item.name,
+        accountNo: item.accountNo ?? null,
+        iban: item.iban ?? null,
+        openingBalance: item.openingBalance ?? 0,
+        isActive: item.isActive ?? true,
+      }));
+      const userId = getUserId(req);
+      const banks = await service.bulkSaveBanks(payload, userId);
+      res.json(banks);
     } catch (error) {
       handleError(res, error);
     }

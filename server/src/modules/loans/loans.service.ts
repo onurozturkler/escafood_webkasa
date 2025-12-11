@@ -357,8 +357,8 @@ export class LoansService {
         counterparty: `Kredi Taksit Ödemesi - ${installment.loan.name}`,
         description: description || `Kredi taksit ödemesi - Taksit #${installment.installmentNumber}`,
         incoming: 0,
-        outgoing: installment.totalAmount,
-        bankDelta: -installment.totalAmount, // Bank balance decreases
+        outgoing: installment.totalAmount.toNumber(),
+        bankDelta: -installment.totalAmount.toNumber(), // Bank balance decreases
         bankId: installment.loan.bankId,
         documentNo: null,
         cashAccountId: null,
@@ -368,7 +368,7 @@ export class LoansService {
         supplierId: null,
         attachmentId: null,
         displayIncoming: null,
-        displayOutgoing: installment.totalAmount,
+        displayOutgoing: installment.totalAmount.toNumber(),
         loanInstallmentId: installmentId,
       },
       createdBy
