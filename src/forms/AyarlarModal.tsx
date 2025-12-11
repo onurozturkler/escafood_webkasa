@@ -243,11 +243,12 @@ const AyarlarModal: React.FC<Props> = ({
         });
 
         setLocalBanks(mappedBanks);
-        setLocalCustomers(customers);
-        setLocalSuppliers(suppliers);
+        setCustomers(customers);
+        setSuppliers(suppliers);
         setLocalCreditCards(mappedCards);
         setLocalLoans(backendLoans);
         setBankFlags(flagsFromStorage);
+
         setGlobalForm(globalSettings);
 
         // Update parent state
@@ -814,7 +815,7 @@ const AyarlarModal: React.FC<Props> = ({
                   <input
                     className="input"
                     value={b.iban ?? ''}
-                    onChange={(e) => handleBankFieldChange(b.id, 'iban', e.target.value || undefined)}
+                    onChange={(e) => handleBankFieldChange(b.id, 'iban', e.target.value)}
                   />
                 </td>
                 <td>
@@ -1377,9 +1378,15 @@ const AyarlarModal: React.FC<Props> = ({
   return (
     <div className="modal-backdrop">
       <div className="modal">
-        <div className="flex items-center justify-between mb-4">
-          <div className="text-lg font-semibold">Ayarlar</div>
-          <button onClick={handleClose}>✕</button>
+        <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-200">
+          <h2 className="text-xl font-semibold text-slate-900 m-0">Ayarlar</h2>
+          <button
+            onClick={handleClose}
+            className="text-slate-500 hover:text-slate-700 text-2xl leading-none w-8 h-8 flex items-center justify-center rounded hover:bg-slate-100"
+            type="button"
+          >
+            ✕
+          </button>
         </div>
 
         <div className="settings-modal">
