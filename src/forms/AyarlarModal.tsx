@@ -11,6 +11,10 @@ import {
   loadBankFlagsFromStorage,
   saveBankFlagsToStorage,
   loadCardExtrasFromStorage,
+  loadCustomersFromStorage,
+  saveCustomersToStorage,
+  loadSuppliersFromStorage,
+  saveSuppliersToStorage,
   type BankFlagMap,
 } from '../utils/settingsUtils';
 import BanksTab from '../components/settings/BanksTab';
@@ -52,24 +56,24 @@ interface Props {
 }
 
 const AyarlarModal: React.FC<Props> = ({
-  isOpen,
-  onClose,
-  activeTab,
-  onChangeTab,
-  banks,
-  setBanks,
-  posTerminals,
-  setPosTerminals,
-  customers,
-  setCustomers,
-  suppliers,
-  setSuppliers,
-  creditCards,
-  setCreditCards,
-  loans,
-  setLoans,
-  globalSettings,
-  setGlobalSettings,
+    isOpen,
+    onClose,
+    activeTab,
+    onChangeTab,
+    banks,
+    setBanks,
+    posTerminals,
+    setPosTerminals,
+    customers,
+    setCustomers,
+    suppliers,
+    setSuppliers,
+    creditCards,
+    setCreditCards,
+    loans,
+    setLoans,
+    globalSettings,
+    setGlobalSettings,
 }) => {
   // ===== State Management =====
   const [loading, setLoading] = useState(false);
@@ -136,9 +140,9 @@ const AyarlarModal: React.FC<Props> = ({
         // Map banks - for opening balance, use stored value or currentBalance (for new banks with no transactions yet)
         const mappedBanks: BankMaster[] = backendBanks.map((b) => {
           const flags = flagsFromStorage[b.id] || {
-            cekKarnesiVarMi: false,
-            posVarMi: false,
-            krediKartiVarMi: false,
+    cekKarnesiVarMi: false,
+    posVarMi: false,
+    krediKartiVarMi: false,
           };
           // Use stored opening balance if available, otherwise use currentBalance (assumes no transactions yet)
           const openingBalance = openingBalances[b.id] ?? b.currentBalance;
@@ -184,8 +188,24 @@ const AyarlarModal: React.FC<Props> = ({
         setLocalBanks(mappedBanks);
         setLocalCreditCards(mappedCards);
         setLocalLoans(backendLoans);
-        setLocalCustomers(customers);
-        setLocalSuppliers(suppliers);
+        // Load customers and suppliers from localStorage (no backend endpoint yet)
+        const savedCustomers = loadCustomersFromStorage();
+        const savedSuppliers = loadSuppliersFromStorage();
+        console.log('AyarlarModal fetchAll - savedCustomers:', savedCustomers.length, 'savedSuppliers:', savedSuppliers.length);
+        console.log('AyarlarModal fetchAll - props customers:', customers.length, 'props suppliers:', suppliers.length);
+        // Use saved data if available, otherwise use props (which may be empty)
+        const finalCustomers = savedCustomers.length > 0 ? savedCustomers : customers;
+        const finalSuppliers = savedSuppliers.length > 0 ? savedSuppliers : suppliers;
+        console.log('AyarlarModal fetchAll - finalCustomers:', finalCustomers.length, 'finalSuppliers:', finalSuppliers.length);
+        setLocalCustomers(finalCustomers);
+        setLocalSuppliers(finalSuppliers);
+        // Also update parent state if we loaded from localStorage
+        if (savedCustomers.length > 0) {
+          setCustomers(finalCustomers);
+        }
+        if (savedSuppliers.length > 0) {
+          setSuppliers(finalSuppliers);
+        }
         setLocalPosTerminals(posTerminals);
         setBankFlags(flagsFromStorage);
         setGlobalForm(globalSettings);
@@ -211,8 +231,8 @@ const AyarlarModal: React.FC<Props> = ({
   // ===== Handlers =====
   const handleClose = () => {
     if (dirty && !window.confirm('Kaydedilmemiş değişiklikler var. Kapatılsın mı?')) {
-      return;
-    }
+        return;
+      }
     // Reset local state on close so it refetches fresh data on next open
     setLocalBanks([]);
     setLocalCreditCards([]);
@@ -282,8 +302,8 @@ const AyarlarModal: React.FC<Props> = ({
 
   const handleDeleteBank = async (bank: BankMaster) => {
     if (!window.confirm(`${bank.bankaAdi} bankasını silmek istediğinize emin misiniz?`)) {
-      return;
-    }
+        return;
+      }
     if (!bank.id.startsWith('tmp-')) {
       await apiDelete(`/api/banks/${bank.id}`);
     }
@@ -413,8 +433,8 @@ const AyarlarModal: React.FC<Props> = ({
 
   const handleDeleteCreditCard = async (card: CreditCard) => {
     if (!window.confirm(`${card.kartAdi} kartını silmek istediğinize emin misiniz?`)) {
-      return;
-    }
+        return;
+      }
     if (!card.id.startsWith('tmp-')) {
       await apiDelete(`/api/credit-cards/${card.id}`);
     }
@@ -563,7 +583,7 @@ const AyarlarModal: React.FC<Props> = ({
         if (loan.id.startsWith('tmp-')) {
           const { id, createdAt, createdBy, updatedAt, updatedBy, deletedAt, deletedBy, bank, installments, ...createPayload } = loan;
           await apiPost<Loan>('/api/loans', createPayload);
-        } else {
+    } else {
           const { id, createdAt, createdBy, deletedAt, deletedBy, bank, installments, ...updatePayload } = loan;
           await apiPut<Loan>(`/api/loans/${loan.id}`, updatePayload);
         }
@@ -576,6 +596,42 @@ const AyarlarModal: React.FC<Props> = ({
       const errorMessage = error?.message || 'Krediler kaydedilirken bir hata oluştu.';
       alert(errorMessage);
       console.error('Error saving loans:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Customer handlers
+  const handleSaveCustomers = async () => {
+    setLoading(true);
+    try {
+      // Save to localStorage (no backend endpoint yet)
+      saveCustomersToStorage(localCustomers);
+      setCustomers(localCustomers);
+      setDirty(false);
+      alert('Müşteriler başarıyla kaydedildi.');
+    } catch (error: any) {
+      console.error('Customers save error:', error);
+      const errorMessage = error?.message || 'Müşteriler kaydedilirken bir hata oluştu.';
+      alert(`Hata: ${errorMessage}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Supplier handlers
+  const handleSaveSuppliers = async () => {
+    setLoading(true);
+    try {
+      // Save to localStorage (no backend endpoint yet)
+      saveSuppliersToStorage(localSuppliers);
+      setSuppliers(localSuppliers);
+      setDirty(false);
+      alert('Tedarikçiler başarıyla kaydedildi.');
+    } catch (error: any) {
+      console.error('Suppliers save error:', error);
+      const errorMessage = error?.message || 'Tedarikçiler kaydedilirken bir hata oluştu.';
+      alert(`Hata: ${errorMessage}`);
     } finally {
       setLoading(false);
     }
@@ -617,8 +673,8 @@ const AyarlarModal: React.FC<Props> = ({
             type="button"
           >
             ✕
-          </button>
-        </div>
+                  </button>
+      </div>
 
         <div className="settings-modal">
           <div className="settings-tabs">
@@ -670,8 +726,8 @@ const AyarlarModal: React.FC<Props> = ({
               onClick={() => onChangeTab('GLOBAL')}
             >
               Global
-            </button>
-          </div>
+          </button>
+        </div>
 
           <div className="settings-content">
             {loading && (
@@ -700,10 +756,22 @@ const AyarlarModal: React.FC<Props> = ({
               />
             )}
             {activeTab === 'MUSTERI' && (
-              <CustomersTab customers={localCustomers} onSetCustomers={setLocalCustomers} onDirty={handleDirty} />
+              <CustomersTab
+                customers={localCustomers}
+                onSetCustomers={setLocalCustomers}
+                onDirty={handleDirty}
+                onSave={handleSaveCustomers}
+                loading={loading}
+              />
             )}
             {activeTab === 'TEDARIKCI' && (
-              <SuppliersTab suppliers={suppliers} onSetSuppliers={setSuppliers} onDirty={handleDirty} />
+              <SuppliersTab
+                suppliers={localSuppliers}
+                onSetSuppliers={setLocalSuppliers}
+                onDirty={handleDirty}
+                onSave={handleSaveSuppliers}
+                loading={loading}
+              />
             )}
             {activeTab === 'KREDI_KARTI' && (
               <CreditCardsTab

@@ -8,9 +8,11 @@ interface Props {
   suppliers: Supplier[];
   onSetSuppliers: (suppliers: Supplier[]) => void;
   onDirty: () => void;
+  onSave: () => void;
+  loading?: boolean;
 }
 
-const SuppliersTab: React.FC<Props> = ({ suppliers, onSetSuppliers, onDirty }) => {
+const SuppliersTab: React.FC<Props> = ({ suppliers, onSetSuppliers, onDirty, onSave, loading = false }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<{ kod: string; ad: string; aktifMi: boolean }>({
     kod: '',
@@ -25,21 +27,28 @@ const SuppliersTab: React.FC<Props> = ({ suppliers, onSetSuppliers, onDirty }) =
         setForm({ kod: supplier.kod, ad: supplier.ad, aktifMi: supplier.aktifMi });
       }
     } else {
-      setForm({ kod: nextCode(suppliers, 'TDRK'), ad: '', aktifMi: true });
+      setForm({ kod: nextCode(suppliers, 'TED'), ad: '', aktifMi: true });
     }
   }, [editingId, suppliers]);
 
   const handleSave = () => {
-    if (!form.ad) return;
+    if (!form.ad || !form.ad.trim()) {
+      alert('Tedarikçi adı gereklidir.');
+      return;
+    }
     onDirty();
     if (editingId) {
       onSetSuppliers(
-        suppliers.map((s) => (s.id === editingId ? { ...s, ad: form.ad, aktifMi: form.aktifMi } : s))
+        suppliers.map((s) => (s.id === editingId ? { ...s, ad: form.ad.trim(), aktifMi: form.aktifMi } : s))
       );
     } else {
-      onSetSuppliers([...suppliers, { id: generateId(), kod: form.kod, ad: form.ad, aktifMi: form.aktifMi }]);
+      const newSupplier = { id: generateId(), kod: form.kod, ad: form.ad.trim(), aktifMi: form.aktifMi };
+      console.log('SuppliersTab - Adding new supplier:', newSupplier);
+      onSetSuppliers([...suppliers, newSupplier]);
     }
     setEditingId(null);
+    // Reset form for next entry
+    setForm({ kod: nextCode(suppliers, 'TED'), ad: '', aktifMi: true });
   };
 
   const handleRemove = (id: string) => {
@@ -92,6 +101,13 @@ const SuppliersTab: React.FC<Props> = ({ suppliers, onSetSuppliers, onDirty }) =
               </tr>
             </thead>
             <tbody>
+              {suppliers.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-3 py-4 text-center text-slate-500">
+                    Kayıtlı tedarikçi yok. Sağdaki formdan yeni tedarikçi ekleyin.
+                  </td>
+                </tr>
+              )}
               {suppliers.map((supplier) => (
                 <tr
                   key={supplier.id}
@@ -152,10 +168,16 @@ const SuppliersTab: React.FC<Props> = ({ suppliers, onSetSuppliers, onDirty }) =
 
           <div className="flex justify-end pt-2">
             <button className="btn btn-primary" onClick={handleSave}>
-              Kaydet
+              Ekle/Düzenle
             </button>
           </div>
         </div>
+      </div>
+
+      <div className="settings-actions mt-4">
+        <button type="button" className="btn btn-primary" disabled={loading} onClick={onSave}>
+          {loading ? 'Kaydediliyor...' : 'Kaydet'}
+        </button>
       </div>
     </div>
   );

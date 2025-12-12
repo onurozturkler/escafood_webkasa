@@ -38,8 +38,15 @@ export async function apiRequest<T>(
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Request failed' }));
-    throw new Error(error.message || `HTTP ${response.status}`);
+    let errorData: any;
+    try {
+      errorData = await response.json();
+    } catch {
+      errorData = { message: `HTTP ${response.status}: ${response.statusText}` };
+    }
+    const error = new Error(errorData.message || errorData.error || `HTTP ${response.status}`);
+    (error as any).response = { status: response.status, data: errorData };
+    throw error;
   }
 
   return response.json();

@@ -8,9 +8,11 @@ interface Props {
   customers: Customer[];
   onSetCustomers: (customers: Customer[]) => void;
   onDirty: () => void;
+  onSave: () => void;
+  loading?: boolean;
 }
 
-const CustomersTab: React.FC<Props> = ({ customers, onSetCustomers, onDirty }) => {
+const CustomersTab: React.FC<Props> = ({ customers, onSetCustomers, onDirty, onSave, loading = false }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<{ kod: string; ad: string; aktifMi: boolean }>({
     kod: '',
@@ -152,10 +154,16 @@ const CustomersTab: React.FC<Props> = ({ customers, onSetCustomers, onDirty }) =
 
           <div className="flex justify-end pt-2">
             <button className="btn btn-primary" onClick={handleSave}>
-              Kaydet
+              Ekle/Düzenle
             </button>
           </div>
         </div>
+      </div>
+
+      <div className="settings-actions mt-4">
+        <button type="button" className="btn btn-primary" disabled={loading} onClick={onSave}>
+          {loading ? 'Kaydediliyor...' : 'Kaydet'}
+        </button>
       </div>
     </div>
   );

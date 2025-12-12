@@ -5,6 +5,8 @@ import { generateId } from './id';
 // Storage keys
 export const BANK_FLAGS_STORAGE_KEY = 'esca-webkasa-bank-flags';
 export const CARD_EXTRAS_STORAGE_KEY = 'esca-webkasa-card-extras';
+export const CUSTOMERS_STORAGE_KEY = 'esca-webkasa-customers';
+export const SUPPLIERS_STORAGE_KEY = 'esca-webkasa-suppliers';
 
 // CSV delimiter
 export const CSV_DELIMITER = ';';
@@ -86,6 +88,54 @@ export function saveCardExtrasToStorage(extras: CardExtrasMap): void {
     localStorage.setItem(CARD_EXTRAS_STORAGE_KEY, JSON.stringify(extras));
   } catch {
     // Cache error should not break the app
+  }
+}
+
+/**
+ * Load customers from localStorage
+ */
+export function loadCustomersFromStorage(): Customer[] {
+  try {
+    const raw = localStorage.getItem(CUSTOMERS_STORAGE_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as Customer[];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Save customers to localStorage
+ */
+export function saveCustomersToStorage(customers: Customer[]): void {
+  try {
+    localStorage.setItem(CUSTOMERS_STORAGE_KEY, JSON.stringify(customers));
+  } catch (error) {
+    console.error('Failed to save customers to localStorage:', error);
+  }
+}
+
+/**
+ * Load suppliers from localStorage
+ */
+export function loadSuppliersFromStorage(): Supplier[] {
+  try {
+    const raw = localStorage.getItem(SUPPLIERS_STORAGE_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as Supplier[];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Save suppliers to localStorage
+ */
+export function saveSuppliersToStorage(suppliers: Supplier[]): void {
+  try {
+    localStorage.setItem(SUPPLIERS_STORAGE_KEY, JSON.stringify(suppliers));
+  } catch (error) {
+    console.error('Failed to save suppliers to localStorage:', error);
   }
 }
 

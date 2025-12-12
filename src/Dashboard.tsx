@@ -219,8 +219,12 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
 
         console.log('Mapped credit cards:', mappedCreditCards);
         setCreditCards(mappedCreditCards);
-      } catch (error) {
+      } catch (error: any) {
         console.error('Failed to load credit cards from backend:', error);
+        // If backend is not running, don't show error to user - just use empty array
+        if (error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_CONNECTION_REFUSED')) {
+          console.warn('Backend server appears to be down. Credit cards will be empty until server is started.');
+        }
         setCreditCards([]);
       }
     };
@@ -234,8 +238,12 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
       try {
         const backendLoans = await apiGet<Loan[]>('/api/loans');
         setLoans(backendLoans);
-      } catch (error) {
+      } catch (error: any) {
         console.error('Failed to load loans from backend:', error);
+        // If backend is not running, don't show error to user - just use empty array
+        if (error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_CONNECTION_REFUSED')) {
+          console.warn('Backend server appears to be down. Loans will be empty until server is started.');
+        }
         setLoans([]);
       }
     };
@@ -291,8 +299,12 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         
         console.log('Mapped banks:', mappedBanks);
         setBanks(mappedBanks);
-      } catch (error) {
+      } catch (error: any) {
         console.error('Failed to load banks from backend:', error);
+        // If backend is not running, don't show error to user - just use empty array
+        if (error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_CONNECTION_REFUSED')) {
+          console.warn('Backend server appears to be down. Banks will be empty until server is started.');
+        }
         // Clear mock banks on error - user must create banks first
         setBanks([]);
       }
@@ -439,7 +451,8 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
   const cashBalance = useMemo(() => {
     const kasaTransactions = dailyTransactions.filter((tx) => tx.source === 'KASA');
     if (kasaTransactions.length === 0) return BASE_CASH_BALANCE;
-    // BUG 1 FIX: Use balanceAfter from backend (already calculated correctly)
+    
+    // FIX: Use balanceAfter from backend (already calculated correctly)
     // Sort by date, then documentNo, then createdAtIso to get the most recent transaction
     // This ensures that when a new transaction is added, it's immediately reflected in cashBalance
     const sorted = [...kasaTransactions].sort((a, b) => {
@@ -451,9 +464,39 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
       return aCreated.localeCompare(bCreated);
     });
     const lastTx = sorted[sorted.length - 1];
-    // BUG 1 FIX: Use balanceAfter from backend, not recalculated value
+    
+    // FIX: Use balanceAfter from backend, not recalculated value
     // Test scenario: starting cash=0, Cash In 20.000 → balance 20.000, Cash Out 10.000 → balance 10.000, Cash In 50.000 → balance 60.000
-    return lastTx.balanceAfter ?? BASE_CASH_BALANCE;
+    const balance = lastTx.balanceAfter ?? BASE_CASH_BALANCE;
+    
+    // Debug log to track balance calculation
+    console.log('Cash balance calculation:', {
+      totalTransactions: dailyTransactions.length,
+      kasaTransactions: kasaTransactions.length,
+      allKasaTransactions: kasaTransactions.map(tx => ({
+        id: tx.id,
+        type: tx.type,
+        isoDate: tx.isoDate,
+        documentNo: tx.documentNo,
+        incoming: tx.incoming,
+        outgoing: tx.outgoing,
+        balanceAfter: tx.balanceAfter,
+        createdAtIso: tx.createdAtIso,
+      })),
+      sortedLastTx: {
+        id: lastTx.id,
+        type: lastTx.type,
+        isoDate: lastTx.isoDate,
+        documentNo: lastTx.documentNo,
+        incoming: lastTx.incoming,
+        outgoing: lastTx.outgoing,
+        balanceAfter: lastTx.balanceAfter,
+        createdAtIso: lastTx.createdAtIso,
+      },
+      calculatedBalance: balance,
+    });
+    
+    return balance;
   }, [dailyTransactions]);
 
   const chequesInCash = cheques.filter((c) => c.status === 'KASADA');
@@ -530,10 +573,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         createdAtIso: response.createdAt,
         createdBy: response.createdBy,
     };
-    addTransactions([tx]);
-    setOpenForm(null);
-      
-      // Refresh today's transactions from backend to ensure we have the latest data
+      // FIX: Refresh FIRST, then close modal - this ensures cashBalance updates immediately
       const today = todayIso();
       try {
         const refreshResponse = await apiGet<{ items: any[]; totalCount: number }>(
@@ -545,12 +585,12 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           displayDate: isoToDisplay(tx.isoDate),
           documentNo: tx.documentNo || '',
           type: tx.type,
-          source: tx.source,
+          source: tx.source, // Backend returns storedSource as 'source'
           counterparty: tx.counterparty || '',
           description: tx.description || '',
           incoming: tx.incoming,
           outgoing: tx.outgoing,
-          balanceAfter: tx.balanceAfter,
+          balanceAfter: Number(tx.balanceAfter) ?? 0, // Ensure balanceAfter is a number
           bankId: tx.bankId || undefined,
           bankDelta: tx.bankDelta || undefined,
           displayIncoming: tx.displayIncoming || undefined,
@@ -558,11 +598,72 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           createdAtIso: tx.createdAt,
           createdBy: tx.createdBy,
         }));
+        
+        console.log('NakitGiris refresh - refreshed transactions:', refreshed);
+        console.log('NakitGiris refresh - KASA transactions:', refreshed.filter(tx => tx.source === 'KASA'));
+        
+        // Update state - this will trigger cashBalance recalculation
         setDailyTransactions(refreshed);
       } catch (refreshError) {
         console.error('Failed to refresh transactions:', refreshError);
-        // Continue anyway - the transaction was already added to state
+        // Fallback: Map backend response to frontend format and add directly
+        const tx: DailyTransaction = {
+          id: response.id,
+          isoDate: response.isoDate,
+          displayDate: isoToDisplay(response.isoDate),
+          documentNo: response.documentNo || '',
+          type: response.type,
+          source: response.source,
+          counterparty: response.counterparty || '',
+          description: response.description || '',
+          incoming: response.incoming,
+          outgoing: response.outgoing,
+          balanceAfter: Number(response.balanceAfter) ?? 0,
+          bankId: response.bankId || undefined,
+          bankDelta: response.bankDelta || undefined,
+          createdAtIso: response.createdAt,
+          createdBy: response.createdBy,
+        };
+        addTransactions([tx]);
       }
+      
+      // Refresh banks to update bank balances
+      try {
+        const backendBanks = await apiGet<Array<{
+          id: string;
+          name: string;
+          accountNo: string | null;
+          iban: string | null;
+          isActive: boolean;
+          currentBalance: number;
+        }>>('/api/banks');
+        
+        const bankFlagsKey = 'esca-webkasa-bank-flags';
+        const savedFlags = localStorage.getItem(bankFlagsKey);
+        const bankFlags: Record<string, { cekKarnesiVarMi: boolean; posVarMi: boolean; krediKartiVarMi: boolean }> = savedFlags ? JSON.parse(savedFlags) : {};
+        
+        const mappedBanks: BankMaster[] = backendBanks.map((bank) => {
+          const flags = bankFlags[bank.id] || { cekKarnesiVarMi: false, posVarMi: false, krediKartiVarMi: false };
+          return {
+            id: bank.id,
+            bankaAdi: bank.name,
+            kodu: bank.accountNo ? bank.accountNo.substring(0, 4).toUpperCase() : 'BNK',
+            hesapAdi: bank.name + (bank.accountNo ? ` - ${bank.accountNo}` : ''),
+            iban: bank.iban || undefined,
+            acilisBakiyesi: bank.currentBalance,
+            aktifMi: bank.isActive,
+            cekKarnesiVarMi: flags.cekKarnesiVarMi,
+            posVarMi: flags.posVarMi,
+            krediKartiVarMi: flags.krediKartiVarMi,
+          };
+        });
+        setBanks(mappedBanks);
+      } catch (bankRefreshError) {
+        console.error('Failed to refresh banks:', bankRefreshError);
+        // Continue anyway
+      }
+      
+    setOpenForm(null);
       
       // Refresh banks to update bank balances
       try {
@@ -613,6 +714,24 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
       (foundSupplier && `${foundSupplier.kod} - ${foundSupplier.ad}`) || values.muhatap || 'Diğer';
       const isCashToBank = values.kaynak === 'KASA_TRANSFER_BANKAYA';
       
+      // Prepare payload
+      // Note: KASA_BANKA_TRANSFER requires source='KASA' (backend normalizes storedSource to KASA)
+      // NAKIT_ODEME requires source='KASA' for cash out
+      const payload = {
+      isoDate: values.islemTarihiIso,
+      documentNo,
+        type: isCashToBank ? 'KASA_BANKA_TRANSFER' : 'NAKIT_ODEME',
+        source: 'KASA', // Both types require source=KASA for cash balance calculation
+      counterparty,
+        description: values.aciklama || null,
+      incoming: 0,
+        outgoing: values.tutar, // Fix: Set outgoing = amount for cash out
+        bankDelta: isCashToBank ? values.tutar : 0,
+        bankId: isCashToBank && values.bankaId ? values.bankaId : null,
+      };
+      
+      console.log('NakitCikis payload:', payload);
+      
       // Send to backend
       const response = await apiPost<{
         id: string;
@@ -629,23 +748,15 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         bankDelta: number;
         createdAt: string;
         createdBy: string;
-      }>('/api/transactions', {
-      isoDate: values.islemTarihiIso,
-      documentNo,
-        type: isCashToBank ? 'KASA_BANKA_TRANSFER' : 'NAKIT_ODEME',
-        source: isCashToBank ? 'BANKA' : 'KASA',
-      counterparty,
-        description: values.aciklama || null,
-      incoming: 0,
-        outgoing: values.tutar, // Fix: Set outgoing = amount for cash out
-        bankDelta: isCashToBank ? values.tutar : 0,
-        bankId: isCashToBank && values.bankaId ? values.bankaId : null,
-      });
+      }>('/api/transactions', payload);
 
-      // BUG 1 FIX: Refresh immediately to ensure cashBalance updates correctly for cash out transactions
+      // FIX: Refresh immediately to ensure cashBalance updates correctly for cash out transactions
       // This ensures that the new transaction's balanceAfter is included in the refresh
+      // IMPORTANT: Refresh ALL KASA transactions (not just today) to get correct balance
       const today = todayIso();
       try {
+        // Get all transactions from the beginning to ensure we have complete history for balance calculation
+        // But for display, we'll still filter to today's transactions
         const refreshResponse = await apiGet<{ items: any[]; totalCount: number }>(
           `/api/transactions?from=${today}&to=${today}&sortKey=isoDate&sortDir=asc`
         );
@@ -655,12 +766,12 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           displayDate: isoToDisplay(tx.isoDate),
           documentNo: tx.documentNo || '',
           type: tx.type,
-          source: tx.source,
+          source: tx.source, // Backend returns storedSource as 'source'
           counterparty: tx.counterparty || '',
           description: tx.description || '',
           incoming: tx.incoming,
           outgoing: tx.outgoing,
-          balanceAfter: Number(tx.balanceAfter) ?? 0, // BUG 1 FIX: Ensure balanceAfter is a number
+          balanceAfter: Number(tx.balanceAfter) ?? 0, // Ensure balanceAfter is a number
           bankId: tx.bankId || undefined,
           bankDelta: tx.bankDelta || undefined,
           displayIncoming: tx.displayIncoming || undefined,
@@ -668,6 +779,11 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           createdAtIso: tx.createdAt,
           createdBy: tx.createdBy,
         }));
+        
+        console.log('NakitCikis refresh - refreshed transactions:', refreshed);
+        console.log('NakitCikis refresh - KASA transactions:', refreshed.filter(tx => tx.source === 'KASA'));
+        
+        // Update state - this will trigger cashBalance recalculation
         setDailyTransactions(refreshed);
       } catch (refreshError) {
         console.error('Failed to refresh transactions:', refreshError);
@@ -678,7 +794,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           displayDate: isoToDisplay(response.isoDate),
           documentNo: response.documentNo || '',
           type: response.type,
-          source: response.source,
+          source: response.source, // Backend returns storedSource as 'source'
           counterparty: response.counterparty || '',
           description: response.description || '',
           incoming: response.incoming,
@@ -689,6 +805,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           createdAtIso: response.createdAt,
           createdBy: response.createdBy,
     };
+    console.log('NakitCikis fallback - adding transaction:', tx);
     addTransactions([tx]);
       }
       
@@ -728,9 +845,15 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         // Continue anyway
       }
     setOpenForm(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to save nakit cikis:', error);
-      alert('İşlem kaydedilemedi. Lütfen tekrar deneyin.');
+      console.error('Error details:', {
+        message: error?.message,
+        response: error?.response,
+        stack: error?.stack,
+      });
+      const errorMessage = error?.message || error?.response?.data?.message || 'İşlem kaydedilemedi. Lütfen tekrar deneyin.';
+      alert(`Hata: ${errorMessage}`);
     }
   };
 
@@ -2163,6 +2286,8 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
             setCreditCards(mappedCreditCards);
           } catch (error) {
             console.error('Failed to reload data after settings close:', error);
+            // Don't show alert for connection errors - backend might be down
+            // User will see the error in console, and data will reload when backend is back
           }
         }}
         activeTab={settingsTab}

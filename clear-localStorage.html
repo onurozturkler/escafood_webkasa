@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clear localStorage</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        button {
+            background: #dc2626;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #b91c1c;
+        }
+        .info {
+            background: #f3f4f6;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .success {
+            background: #d1fae5;
+            color: #065f46;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>ESCA WebKasa - localStorage Temizleme</h1>
+    
+    <div class="info">
+        <strong>⚠️ UYARI:</strong> Bu işlem tüm localStorage verilerini silecektir:
+        <ul>
+            <li>Bank flags (çek karnesi, POS, kredi kartı işaretleri)</li>
+            <li>Kredi kartı ekstraları</li>
+            <li>Müşteriler</li>
+            <li>Tedarikçiler</li>
+            <li>Kullanıcı oturum bilgisi</li>
+        </ul>
+    </div>
+
+    <button onclick="clearAll()">TÜM localStorage'ı Temizle</button>
+    <button onclick="clearAppData()">Sadece Uygulama Verilerini Temizle</button>
+    
+    <div id="result"></div>
+
+    <script>
+        function clearAll() {
+            if (confirm('TÜM localStorage verilerini silmek istediğinize emin misiniz?')) {
+                localStorage.clear();
+                showResult('✅ Tüm localStorage temizlendi!', true);
+            }
+        }
+
+        function clearAppData() {
+            if (confirm('Uygulama verilerini silmek istediğinize emin misiniz?')) {
+                const keys = [
+                    'esca-webkasa-bank-flags',
+                    'esca-webkasa-card-extras',
+                    'esca-webkasa-customers',
+                    'esca-webkasa-suppliers'
+                ];
+                
+                let cleared = 0;
+                keys.forEach(key => {
+                    if (localStorage.getItem(key)) {
+                        localStorage.removeItem(key);
+                        cleared++;
+                    }
+                });
+                
+                showResult(`✅ ${cleared} uygulama verisi temizlendi! (Kullanıcı oturumu korundu)`, true);
+            }
+        }
+
+        function showResult(message, isSuccess) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = `<div class="${isSuccess ? 'success' : ''}">${message}</div>`;
+        }
+
+        // Sayfa yüklendiğinde mevcut verileri göster
+        window.onload = function() {
+            const keys = [
+                'esca-webkasa-bank-flags',
+                'esca-webkasa-card-extras',
+                'esca-webkasa-customers',
+                'esca-webkasa-suppliers',
+                'esca-webkasa-user'
+            ];
+            
+            let info = '<h3>Mevcut localStorage Verileri:</h3><ul>';
+            keys.forEach(key => {
+                const value = localStorage.getItem(key);
+                if (value) {
+                    try {
+                        const parsed = JSON.parse(value);
+                        const size = Array.isArray(parsed) ? parsed.length : Object.keys(parsed).length;
+                        info += `<li><strong>${key}</strong>: ${size} kayıt</li>`;
+                    } catch {
+                        info += `<li><strong>${key}</strong>: Mevcut</li>`;
+                    }
+                } else {
+                    info += `<li><strong>${key}</strong>: Yok</li>`;
+                }
+            });
+            info += '</ul>';
+            document.body.innerHTML += info;
+        };
+    </script>
+</body>
+</html>
+
