@@ -311,35 +311,104 @@ const AyarlarModal: React.FC<Props> = ({
     setLocalBanks((prev) => prev.filter((b) => b.id !== bank.id));
   };
 
-  const handleSaveBanks = async () => {
+  const handleSaveBanks = async (banksToSave?: BankMaster[]): Promise<BankMaster[]> => {
     setLoading(true);
     try {
+      // Use provided banks or fallback to localBanks state
+      // IMPORTANT: Check if banksToSave is provided and is an array
+      let banks: BankMaster[];
+      if (banksToSave !== undefined && banksToSave !== null) {
+        if (!Array.isArray(banksToSave)) {
+          console.error('banksToSave is not an array:', banksToSave, typeof banksToSave);
+          throw new Error('banksToSave parameter is not an array');
+        }
+        banks = banksToSave;
+      } else {
+        if (!Array.isArray(localBanks)) {
+          console.error('localBanks is not an array:', localBanks, typeof localBanks);
+          throw new Error('localBanks state is not an array');
+        }
+        banks = localBanks;
+      }
+      
+      // Final validation that banks is an array
+      if (!Array.isArray(banks)) {
+        console.error('Banks data is not an array after assignment:', banks, 'banksToSave:', banksToSave, 'localBanks:', localBanks);
+        throw new Error('Banks data is not an array');
+      }
+      
+      if (banks.length === 0) {
+        console.warn('No banks to save');
+        setLoading(false);
+        return [];
+      }
+      
+      console.log('handleSaveBanks - saving', banks.length, 'banks');
+      console.log('handleSaveBanks - banks data:', banks);
+      
       // Prepare payload for bulk save
-      const payload = localBanks.map((b) => ({
-        id: b.id,
-        name: b.bankaAdi,
-        accountNo: b.hesapAdi.includes(' - ') ? b.hesapAdi.split(' - ')[1] : null,
-        iban: b.iban || null,
-        openingBalance: b.acilisBakiyesi ?? 0,
-        isActive: b.aktifMi,
-      }));
+      const payload = banks.map((b) => {
+        const accountNo = b.hesapAdi.includes(' - ') ? b.hesapAdi.split(' - ')[1] : null;
+        const item = {
+          id: b.id,
+          name: b.bankaAdi.trim(),
+          accountNo: accountNo ? accountNo.trim() : null,
+          iban: b.iban ? b.iban.trim() : null,
+          openingBalance: b.acilisBakiyesi ?? 0,
+          isActive: b.aktifMi ?? true,
+        };
+        console.log('handleSaveBanks - payload item:', item);
+        return item;
+      });
+
+      console.log('handleSaveBanks - full payload to send:', payload);
+      console.log('handleSaveBanks - payload length:', payload.length);
 
       // Save to backend
-      const saved = await apiPost<
-        Array<{
-          id: string;
-          name: string;
-          accountNo: string | null;
-          iban: string | null;
-          isActive: boolean;
-          currentBalance: number;
-        }>
-      >('/api/banks/bulk-save', payload);
+      type SavedBank = {
+        id: string;
+        name: string;
+        accountNo: string | null;
+        iban: string | null;
+        isActive: boolean;
+        currentBalance: number;
+      };
+      
+      let saved: SavedBank[];
+      
+      try {
+        saved = await apiPost<SavedBank[]>('/api/banks/bulk-save', payload);
+      } catch (apiError: any) {
+        console.error('handleSaveBanks - API error:', apiError);
+        console.error('handleSaveBanks - API error response:', apiError?.response);
+        throw apiError;
+      }
+
+      console.log('handleSaveBanks - backend response:', saved);
+      console.log('handleSaveBanks - backend response type:', typeof saved, 'isArray:', Array.isArray(saved));
+      
+      if (!saved) {
+        throw new Error('Backend returned null or undefined');
+      }
+      
+      if (!Array.isArray(saved)) {
+        console.error('Backend response is not an array:', saved);
+        throw new Error(`Backend did not return an array. Got: ${typeof saved}`);
+      }
+      
+      if (saved.length === 0) {
+        console.warn('Backend returned empty array - this might be OK for updates');
+        // Don't throw error for empty array, just log it
+      }
+      
+      if (saved.length !== banks.length) {
+        console.warn(`Backend returned ${saved.length} banks but we sent ${banks.length}`);
+      }
 
       // Map tmp-* IDs to real IDs: backend returns banks in same order as input
       // Create tempId -> realId mapping
       const tempIdMap: Record<string, string> = {};
-      localBanks.forEach((localBank, idx) => {
+      banks.forEach((localBank, idx) => {
         if (localBank.id.startsWith('tmp-') && saved[idx]) {
           tempIdMap[localBank.id] = saved[idx].id;
         }
@@ -347,7 +416,7 @@ const AyarlarModal: React.FC<Props> = ({
 
       // Extract and save bank flags to localStorage using real IDs
       const flagsMap: BankFlagMap = {};
-      for (const b of localBanks) {
+      for (const b of banks) {
         // Use real ID from mapping if tmp-*, otherwise use existing ID
         const realId = tempIdMap[b.id] || b.id;
         flagsMap[realId] = {
@@ -360,10 +429,10 @@ const AyarlarModal: React.FC<Props> = ({
       setBankFlags(flagsMap);
 
       // Map saved banks back to BankMaster format
-      // Preserve opening balance from user input (stored in openingBalances or localBanks)
+      // Preserve opening balance from user input (stored in openingBalances or banks)
       const newOpeningBalances: Record<string, number> = {};
       const mappedBanks: BankMaster[] = saved.map((savedBank, idx) => {
-        const localBank = localBanks[idx];
+        const localBank = banks[idx];
         const f = flagsMap[savedBank.id] || {};
         // Preserve the opening balance that user entered
         const openingBalance = localBank?.acilisBakiyesi ?? openingBalances[savedBank.id] ?? savedBank.currentBalance ?? 0;
@@ -389,12 +458,18 @@ const AyarlarModal: React.FC<Props> = ({
       setLocalBanks(mappedBanks);
       setBanks(mappedBanks);
       setDirty(false);
+      
+      console.log('handleSaveBanks - successfully saved', mappedBanks.length, 'banks');
+      console.log('handleSaveBanks - saved banks:', mappedBanks);
+      return mappedBanks;
     } catch (error: any) {
       console.error('Banks save error:', error);
       console.error('Error response:', error?.response || error);
+      console.error('Error stack:', error?.stack);
       const errorMessage = error?.message || error?.response?.data?.message || 'Bankalar kaydedilirken bir hata oluştu.';
       alert(`Hata: ${errorMessage}`);
       // Don't close modal on error - keep it open so user can fix and retry
+      throw error; // Re-throw to let caller know it failed
     } finally {
       // Always stop loading, whether success or error
       setLoading(false);
@@ -745,6 +820,8 @@ const AyarlarModal: React.FC<Props> = ({
                 onAdd={handleAddBank}
                 onDelete={handleDeleteBank}
                 onSave={handleSaveBanks}
+                onSetBanks={setLocalBanks}
+                onDirty={handleDirty}
               />
             )}
             {activeTab === 'POS' && (

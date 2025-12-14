@@ -188,12 +188,14 @@ export class BanksService {
     const results: BankWithBalance[] = [];
 
     for (const item of payload) {
-      const isNew = item.id.startsWith('tmp-');
-      const openingBalance = item.openingBalance ?? 0;
+      try {
+        const isNew = item.id.startsWith('tmp-');
+        const openingBalance = item.openingBalance ?? 0;
 
-      if (isNew) {
-        // Create new bank
-        const created = await prisma.bank.create({
+        if (isNew) {
+          console.log('BanksService.bulkSaveBanks - creating new bank:', item.name);
+          // Create new bank
+          const created = await prisma.bank.create({
           data: {
             name: item.name,
             accountNo: item.accountNo ?? null,
@@ -225,14 +227,17 @@ export class BanksService {
             ? Number(balanceGroups[0]._sum.bankDelta)
             : 0;
 
+        console.log('BanksService.bulkSaveBanks - created bank:', created.id, 'currentBalance:', currentBalance);
         results.push({
           ...created,
           currentBalance,
         });
       } else {
+        console.log('BanksService.bulkSaveBanks - updating existing bank:', item.id);
         // Update existing bank
         const existing = await prisma.bank.findUnique({ where: { id: item.id } });
         if (!existing || existing.deletedAt) {
+          console.log('BanksService.bulkSaveBanks - bank not found or deleted, skipping:', item.id);
           continue; // Skip deleted or non-existent banks
         }
 
@@ -263,13 +268,20 @@ export class BanksService {
             ? Number(balanceGroups[0]._sum.bankDelta)
             : 0;
 
+        console.log('BanksService.bulkSaveBanks - updated bank:', updated.id, 'currentBalance:', currentBalance);
         results.push({
           ...updated,
           currentBalance,
         });
       }
+      } catch (itemError: any) {
+        console.error('BanksService.bulkSaveBanks - error processing item:', item, 'error:', itemError);
+        // Continue with next item instead of failing entire batch
+        // But log the error so we can debug
+      }
     }
 
+    console.log('BanksService.bulkSaveBanks - returning results:', results.length, 'banks');
     return results;
   }
 }

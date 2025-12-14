@@ -1,6 +1,6 @@
 import React from 'react';
 import { BankMaster } from '../../models/bank';
-import { BankFlagMap } from '../../utils/settingsUtils';
+import { BankFlagMap, downloadCsv, parseCsvFile, parseBankCsv, triggerCsvUpload, CSV_DELIMITER } from '../../utils/settingsUtils';
 
 interface Props {
   banks: BankMaster[];
@@ -10,7 +10,9 @@ interface Props {
   onFlagChange: (bankId: string, field: keyof BankFlagMap[string], value: boolean) => void;
   onAdd: () => void;
   onDelete: (bank: BankMaster) => void;
-  onSave: () => void;
+  onSave: (banks?: BankMaster[]) => void | Promise<void> | Promise<BankMaster[]>;
+  onSetBanks: (banks: BankMaster[]) => void;
+  onDirty: () => void;
 }
 
 const BanksTab: React.FC<Props> = ({
@@ -22,14 +24,89 @@ const BanksTab: React.FC<Props> = ({
   onAdd,
   onDelete,
   onSave,
+  onSetBanks,
+  onDirty,
 }) => {
+  const handleCsvDownload = () => {
+    const lines = [
+      ['bankaAdi', 'hesapNo', 'iban', 'acilisBakiyesi', 'aktifMi', 'cekKarnesiVarMi', 'posVarMi', 'krediKartiVarMi'].join(CSV_DELIMITER),
+      ...banks.map((b) => {
+        const hesapNo = b.hesapAdi.includes(' - ') ? b.hesapAdi.split(' - ')[1] : '';
+        return [
+          b.bankaAdi,
+          hesapNo,
+          b.iban || '',
+          String(b.acilisBakiyesi || 0),
+          b.aktifMi ? 'true' : 'false',
+          b.cekKarnesiVarMi ? 'true' : 'false',
+          b.posVarMi ? 'true' : 'false',
+          b.krediKartiVarMi ? 'true' : 'false',
+        ].join(CSV_DELIMITER);
+      }),
+    ];
+    downloadCsv(lines.join('\n'), 'banks-template.csv');
+  };
+
+  const handleCsvUpload = async (file: File) => {
+    try {
+      const lines = await parseCsvFile(file);
+      const parsed = parseBankCsv(lines, banks);
+      
+      if (parsed.length === 0) {
+        alert('CSV dosyasında geçerli banka bulunamadı.');
+        return;
+      }
+      
+      // Update local state first
+      onDirty();
+      onSetBanks(parsed);
+      
+      // FIX: Automatically save after CSV upload to persist changes
+      // Pass parsed banks directly to onSave to avoid React state timing issues
+      try {
+        // Ensure parsed is an array before calling onSave
+        if (!Array.isArray(parsed)) {
+          throw new Error('Parsed banks is not an array');
+        }
+        console.log('CSV upload - calling onSave with', parsed.length, 'banks');
+        console.log('CSV upload - parsed banks:', parsed);
+        
+        const result = await onSave(parsed);
+        console.log('CSV upload - onSave result:', result);
+        
+        if (result && Array.isArray(result) && result.length > 0) {
+          alert(`${parsed.length} banka CSV'den yüklendi ve başarıyla kaydedildi.`);
+        } else {
+          console.warn('CSV upload - onSave returned unexpected result:', result);
+          alert(`${parsed.length} banka CSV'den yüklendi. Kaydetme işlemi tamamlandı.`);
+        }
+      } catch (saveError: any) {
+        console.error('CSV upload save error:', saveError);
+        console.error('CSV upload save error stack:', saveError?.stack);
+        alert(`Banka kaydedilirken hata oluştu: ${saveError?.message || 'Bilinmeyen hata'}`);
+        throw saveError; // Re-throw to prevent false success message
+      }
+    } catch (error: any) {
+      console.error('CSV upload error:', error);
+      alert(error?.message || 'CSV yüklenirken bir hata oluştu.');
+    }
+  };
+
   return (
     <div className="settings-tab">
       <div className="settings-tab-header">
         <h3>Bankalar</h3>
-        <button type="button" className="btn btn-secondary" onClick={onAdd}>
-          Yeni Banka
-        </button>
+        <div className="flex gap-2">
+          <button className="text-indigo-600 hover:text-indigo-700 text-sm" onClick={handleCsvDownload}>
+            CSV Şablonu İndir
+          </button>
+          <button className="text-indigo-600 hover:text-indigo-700 text-sm" onClick={() => triggerCsvUpload(handleCsvUpload)}>
+            CSV Yükle
+          </button>
+          <button type="button" className="btn btn-secondary" onClick={onAdd}>
+            Yeni Banka
+          </button>
+        </div>
       </div>
 
       <div className="settings-table-wrapper">

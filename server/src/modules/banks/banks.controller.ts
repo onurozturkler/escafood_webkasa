@@ -65,7 +65,9 @@ export class BanksController {
 
   async bulkSave(req: Request, res: Response) {
     try {
+      console.log('BanksController.bulkSave - received body:', JSON.stringify(req.body, null, 2));
       const rawPayload = bulkSaveBankSchema.parse(req.body);
+      console.log('BanksController.bulkSave - parsed payload:', JSON.stringify(rawPayload, null, 2));
       // Normalize undefined to null for accountNo and iban
       const payload = rawPayload.map((item) => ({
         id: item.id,
@@ -75,10 +77,14 @@ export class BanksController {
         openingBalance: item.openingBalance ?? 0,
         isActive: item.isActive ?? true,
       }));
+      console.log('BanksController.bulkSave - normalized payload:', JSON.stringify(payload, null, 2));
       const userId = getUserId(req);
+      console.log('BanksController.bulkSave - userId:', userId);
       const banks = await service.bulkSaveBanks(payload, userId);
+      console.log('BanksController.bulkSave - saved banks:', JSON.stringify(banks, null, 2));
       res.json(banks);
     } catch (error) {
+      console.error('BanksController.bulkSave - error:', error);
       handleError(res, error);
     }
   }

@@ -1,5 +1,6 @@
 import { Customer } from '../models/customer';
 import { Supplier } from '../models/supplier';
+import { BankMaster } from '../models/bank';
 import { generateId } from './id';
 
 // Storage keys
@@ -252,6 +253,74 @@ export function parseSupplierCsv(
 
     const kod = kodRaw || getNext();
     parsed.push({ id: generateId(), kod, ad: adRaw, aktifMi });
+  });
+
+  return parsed;
+}
+
+/**
+ * Parse bank CSV
+ */
+export function parseBankCsv(
+  lines: string[],
+  existingBanks: BankMaster[]
+): BankMaster[] {
+  if (!lines.length) return [];
+
+  const header = lines[0].split(/[;,]/).map((h) => h.trim().toLowerCase());
+  const expectedHeaders = ['bankaadi', 'hesapno', 'iban', 'acilisbakiyesi', 'aktifmi', 'cekkarnesivarmi', 'posvarmi', 'kredikartivarmi'];
+  const headerMatch = expectedHeaders.every((h) => header.includes(h));
+  
+  if (!headerMatch) {
+    throw new Error('Geçersiz CSV formatı. Başlıklar: bankaAdi,hesapNo,iban,acilisBakiyesi,aktifMi,cekKarnesiVarMi,posVarMi,krediKartiVarMi olmalıdır.');
+  }
+
+  const parsed: BankMaster[] = [];
+
+  lines.slice(1).forEach((line) => {
+    const cols = line.split(/[;,]/);
+    const bankaAdiRaw = cols[0]?.trim() ?? '';
+    const hesapNoRaw = cols[1]?.trim() ?? '';
+    const ibanRaw = cols[2]?.trim() ?? '';
+    const acilisBakiyesiRaw = cols[3]?.trim() ?? '0';
+    const aktifMiRaw = cols[4]?.trim() ?? 'true';
+    const cekKarnesiVarMiRaw = cols[5]?.trim() ?? 'false';
+    const posVarMiRaw = cols[6]?.trim() ?? 'false';
+    const krediKartiVarMiRaw = cols[7]?.trim() ?? 'false';
+
+    if (!bankaAdiRaw) return;
+
+    const parseBoolean = (raw: string, defaultValue: boolean = false): boolean => {
+      const lower = raw.toLowerCase();
+      if (lower === 'false' || lower === '0' || lower === 'hayır' || lower === 'hayir') {
+        return false;
+      } else if (lower === 'true' || lower === '1' || lower === 'evet') {
+        return true;
+      }
+      return defaultValue;
+    };
+
+    const acilisBakiyesi = Number(acilisBakiyesiRaw) || 0;
+    const aktifMi = parseBoolean(aktifMiRaw, true);
+    const cekKarnesiVarMi = parseBoolean(cekKarnesiVarMiRaw, false);
+    const posVarMi = parseBoolean(posVarMiRaw, false);
+    const krediKartiVarMi = parseBoolean(krediKartiVarMiRaw, false);
+
+    const hesapAdi = hesapNoRaw ? `${bankaAdiRaw} - ${hesapNoRaw}` : bankaAdiRaw;
+    const kodu = hesapNoRaw ? hesapNoRaw.substring(0, 4).toUpperCase() : 'BNK';
+
+    parsed.push({
+      id: generateId(),
+      bankaAdi: bankaAdiRaw,
+      kodu,
+      hesapAdi,
+      iban: ibanRaw || undefined,
+      acilisBakiyesi,
+      aktifMi,
+      cekKarnesiVarMi,
+      posVarMi,
+      krediKartiVarMi,
+    });
   });
 
   return parsed;

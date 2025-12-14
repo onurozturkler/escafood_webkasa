@@ -120,13 +120,20 @@ function mergeTransactions(
   // BUG 1 FIX: Don't recalculate - use balanceAfter from backend
   // Sort by date, documentNo, and createdAtIso to maintain correct chronological order
   // This ensures that newly added transactions appear in the correct position
+  // FIX: Sort by createdAtIso (creation time) to maintain correct chronological order
+  // This ensures that newly added transactions appear in the order they were created
+  // Primary sort: by creation timestamp (most reliable)
   const merged = [...existing, ...filtered].sort((a, b) => {
+    const aCreated = a.createdAtIso || a.isoDate + 'T00:00:00';
+    const bCreated = b.createdAtIso || b.isoDate + 'T00:00:00';
+    const timeCompare = aCreated.localeCompare(bCreated);
+    if (timeCompare !== 0) return timeCompare;
+    
+    // Secondary sort: by date (if same timestamp)
     if (a.isoDate !== b.isoDate) return a.isoDate.localeCompare(b.isoDate);
-    if (a.documentNo !== b.documentNo) return a.documentNo.localeCompare(b.documentNo);
-    // If same date and documentNo, use createdAtIso to maintain chronological order
-    const aCreated = a.createdAtIso || '';
-    const bCreated = b.createdAtIso || '';
-    return aCreated.localeCompare(bCreated);
+    
+    // Tertiary sort: by documentNo (if same date and timestamp)
+    return a.documentNo.localeCompare(b.documentNo);
   });
   
   // For non-KASA transactions, set balanceAfter to last KASA transaction's balanceAfter
@@ -373,7 +380,16 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           createdAtIso: tx.createdAt,
           createdBy: tx.createdBy,
         }));
-        setDailyTransactions(mapped);
+        
+        // FIX: Sort by createdAtIso (creation time) to show transactions in the order they were created
+        // This ensures that transactions appear in chronological order, not by type or documentNo
+        const sorted = [...mapped].sort((a, b) => {
+          const aCreated = a.createdAtIso || a.isoDate + 'T00:00:00';
+          const bCreated = b.createdAtIso || b.isoDate + 'T00:00:00';
+          return aCreated.localeCompare(bCreated);
+        });
+        
+        setDailyTransactions(sorted);
       } catch (error) {
         // eslint-disable-next-line no-console
         console.error('Failed to fetch today\'s transactions:', error);
@@ -453,21 +469,40 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
     if (kasaTransactions.length === 0) return BASE_CASH_BALANCE;
     
     // FIX: Use balanceAfter from backend (already calculated correctly)
-    // Sort by date, then documentNo, then createdAtIso to get the most recent transaction
+    // Sort by createdAtIso (creation timestamp) to get the most recent transaction
     // This ensures that when a new transaction is added, it's immediately reflected in cashBalance
+    // IMPORTANT: createdAtIso is the most reliable way to determine transaction order
     const sorted = [...kasaTransactions].sort((a, b) => {
+      // Primary sort: by creation timestamp (most reliable)
+      const aCreated = a.createdAtIso || a.isoDate + 'T00:00:00';
+      const bCreated = b.createdAtIso || b.isoDate + 'T00:00:00';
+      const timeCompare = aCreated.localeCompare(bCreated);
+      if (timeCompare !== 0) return timeCompare;
+      
+      // Secondary sort: by date (if same timestamp)
       if (a.isoDate !== b.isoDate) return a.isoDate.localeCompare(b.isoDate);
-      if (a.documentNo !== b.documentNo) return a.documentNo.localeCompare(b.documentNo);
-      // If same date and documentNo, use createdAtIso to get the most recent one
-      const aCreated = a.createdAtIso || '';
-      const bCreated = b.createdAtIso || '';
-      return aCreated.localeCompare(bCreated);
+      
+      // Tertiary sort: by documentNo (if same date and timestamp)
+      return a.documentNo.localeCompare(b.documentNo);
     });
     const lastTx = sorted[sorted.length - 1];
     
     // FIX: Use balanceAfter from backend, not recalculated value
     // Test scenario: starting cash=0, Cash In 20.000 → balance 20.000, Cash Out 10.000 → balance 10.000, Cash In 50.000 → balance 60.000
-    const balance = lastTx.balanceAfter ?? BASE_CASH_BALANCE;
+    // Ensure balanceAfter is a number (backend may return Decimal or string)
+    const balance = lastTx.balanceAfter != null ? Number(lastTx.balanceAfter) : BASE_CASH_BALANCE;
+    
+    // Additional validation: if balanceAfter is 0 or NaN, fallback to BASE_CASH_BALANCE
+    if (isNaN(balance) || balance === 0) {
+      console.warn('Cash balance calculation: balanceAfter is invalid, using BASE_CASH_BALANCE', {
+        lastTx: {
+          id: lastTx.id,
+          balanceAfter: lastTx.balanceAfter,
+          type: lastTx.type,
+        },
+      });
+      return BASE_CASH_BALANCE;
+    }
     
     // Debug log to track balance calculation
     console.log('Cash balance calculation:', {
@@ -602,8 +637,15 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         console.log('NakitGiris refresh - refreshed transactions:', refreshed);
         console.log('NakitGiris refresh - KASA transactions:', refreshed.filter(tx => tx.source === 'KASA'));
         
+        // FIX: Sort by createdAtIso (creation time) to show transactions in the order they were created
+        const sorted = [...refreshed].sort((a, b) => {
+          const aCreated = a.createdAtIso || a.isoDate + 'T00:00:00';
+          const bCreated = b.createdAtIso || b.isoDate + 'T00:00:00';
+          return aCreated.localeCompare(bCreated);
+        });
+        
         // Update state - this will trigger cashBalance recalculation
-        setDailyTransactions(refreshed);
+        setDailyTransactions(sorted);
       } catch (refreshError) {
         console.error('Failed to refresh transactions:', refreshError);
         // Fallback: Map backend response to frontend format and add directly
@@ -783,8 +825,15 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         console.log('NakitCikis refresh - refreshed transactions:', refreshed);
         console.log('NakitCikis refresh - KASA transactions:', refreshed.filter(tx => tx.source === 'KASA'));
         
+        // FIX: Sort by createdAtIso (creation time) to show transactions in the order they were created
+        const sorted = [...refreshed].sort((a, b) => {
+          const aCreated = a.createdAtIso || a.isoDate + 'T00:00:00';
+          const bCreated = b.createdAtIso || b.isoDate + 'T00:00:00';
+          return aCreated.localeCompare(bCreated);
+        });
+        
         // Update state - this will trigger cashBalance recalculation
-        setDailyTransactions(refreshed);
+        setDailyTransactions(sorted);
       } catch (refreshError) {
         console.error('Failed to refresh transactions:', refreshError);
         // Fallback: Map backend response to frontend format and add directly
@@ -1761,7 +1810,15 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         createdAtIso: tx.createdAt,
         createdBy: tx.createdBy,
       }));
-      setDailyTransactions(mapped);
+      
+      // FIX: Sort by createdAtIso (creation time) to show transactions in the order they were created
+      const sorted = [...mapped].sort((a, b) => {
+        const aCreated = a.createdAtIso || a.isoDate + 'T00:00:00';
+        const bCreated = b.createdAtIso || b.isoDate + 'T00:00:00';
+        return aCreated.localeCompare(bCreated);
+      });
+      
+      setDailyTransactions(sorted);
     } catch (error) {
       console.error('Failed to refresh transactions after delete:', error);
       // Fallback: just remove the transaction from local state

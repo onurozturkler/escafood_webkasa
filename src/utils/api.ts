@@ -44,12 +44,26 @@ export async function apiRequest<T>(
     } catch {
       errorData = { message: `HTTP ${response.status}: ${response.statusText}` };
     }
+    console.error('apiRequest - error response:', {
+      status: response.status,
+      statusText: response.statusText,
+      errorData,
+      url,
+    });
     const error = new Error(errorData.message || errorData.error || `HTTP ${response.status}`);
     (error as any).response = { status: response.status, data: errorData };
     throw error;
   }
 
-  return response.json();
+  const jsonData = await response.json();
+  console.log('apiRequest - success response:', {
+    url,
+    data: jsonData,
+    dataType: typeof jsonData,
+    isArray: Array.isArray(jsonData),
+    length: Array.isArray(jsonData) ? jsonData.length : 'N/A',
+  });
+  return jsonData;
 }
 
 export function apiGet<T>(endpoint: string): Promise<T> {
