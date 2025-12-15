@@ -80,16 +80,22 @@ const CreditCardsTab: React.FC<Props> = ({
                   <input
                     className="input"
                     type="number"
-                    value={card.guncelBorc ?? 0}
-                    onChange={(e) => onFieldChange(card.id, 'guncelBorc', Number(e.target.value) || 0)}
+                    value={card.guncelBorc ?? ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      onFieldChange(card.id, 'guncelBorc', val === '' ? null : Number(val));
+                    }}
                   />
                 </td>
                 <td>
                   <input
                     className="input"
                     type="number"
-                    value={card.sonEkstreBorcu ?? 0}
-                    onChange={(e) => onFieldChange(card.id, 'sonEkstreBorcu', Number(e.target.value) || 0)}
+                    value={card.sonEkstreBorcu ?? ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      onFieldChange(card.id, 'sonEkstreBorcu', val === '' ? 0 : Number(val));
+                    }}
                   />
                 </td>
                 <td>

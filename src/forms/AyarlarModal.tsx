@@ -92,10 +92,39 @@ const AyarlarModal: React.FC<Props> = ({
   const [openingBalances, setOpeningBalances] = useState<Record<string, number>>({});
 
   // ===== Effects =====
-  // Fetch data when modal opens (only if localBanks is empty - first open or after close)
+  // Sync local state with parent state when modal opens (after parent state is updated from onClose)
   useEffect(() => {
-    if (!isOpen) return;
-    // Only fetch if we don't have local data yet (first open or after close/reset)
+    if (!isOpen) {
+      // Modal closed: reset local state to force fresh fetch on next open
+      setLocalBanks([]);
+      setLocalCreditCards([]);
+      setLocalLoans([]);
+      setLocalCustomers([]);
+      setLocalSuppliers([]);
+      setLocalPosTerminals([]);
+      setDirty(false);
+      return;
+    }
+    
+    // Modal opened: if parent state has data, sync it to local state
+    // This ensures that after modal close/reopen, we use the latest parent state (which was updated in onClose)
+    if (banks.length > 0 || creditCards.length > 0 || loans.length > 0) {
+      console.log('[BUG-1 DEBUG] AyarlarModal - Syncing local state from parent state on modal open');
+      setLocalBanks(banks);
+      setLocalCreditCards(creditCards);
+      setLocalLoans(loans);
+      setLocalCustomers(customers);
+      setLocalSuppliers(suppliers);
+      setLocalPosTerminals(posTerminals);
+      setGlobalForm(globalSettings);
+      // Load bank flags from localStorage
+      const flagsFromStorage = loadBankFlagsFromStorage();
+      setBankFlags(flagsFromStorage);
+      setDirty(false);
+      return; // Don't fetch, use parent state
+    }
+    
+    // Only fetch if we don't have local data yet (first open)
     if (localBanks.length > 0) {
       // Already have local data, don't refetch (preserves unsaved changes)
       return;
@@ -125,6 +154,8 @@ const AyarlarModal: React.FC<Props> = ({
               limit: number | null;
               closingDay: number | null;
               dueDay: number | null;
+              sonEkstreBorcu: number;
+              manualGuncelBorc: number | null;
               isActive: boolean;
               currentDebt: number;
               availableLimit: number | null;
@@ -160,7 +191,7 @@ const AyarlarModal: React.FC<Props> = ({
           };
         });
 
-        // Map credit cards with localStorage extras
+        // Map credit cards with localStorage extras (only for asgariOran and maskeliKartNo)
         const cardExtras = loadCardExtrasFromStorage();
         const mappedCards: CreditCard[] = backendCards.map((c) => {
           const limit = c.limit;
@@ -179,8 +210,8 @@ const AyarlarModal: React.FC<Props> = ({
             sonOdemeGunu: c.dueDay ?? 1,
             maskeliKartNo: extras.maskeliKartNo,
             aktifMi: c.isActive,
-            sonEkstreBorcu: extras.sonEkstreBorcu,
-            guncelBorc: c.currentDebt,
+            sonEkstreBorcu: c.sonEkstreBorcu !== undefined && c.sonEkstreBorcu !== null ? c.sonEkstreBorcu : 0, // Use from backend, not localStorage
+            guncelBorc: c.manualGuncelBorc !== null && c.manualGuncelBorc !== undefined ? c.manualGuncelBorc : null, // Use from backend
           };
         });
 
@@ -270,15 +301,15 @@ const AyarlarModal: React.FC<Props> = ({
     setLocalBanks((prev) =>
       prev.map((b) =>
         b.id === bankId
-          ? {
-              ...b,
+            ? {
+                ...b,
               cekKarnesiVarMi: field === 'cekKarnesiVarMi' ? value : b.cekKarnesiVarMi,
               posVarMi: field === 'posVarMi' ? value : b.posVarMi,
               krediKartiVarMi: field === 'krediKartiVarMi' ? value : b.krediKartiVarMi,
-            }
-          : b
-      )
-    );
+              }
+            : b
+        )
+      );
   };
 
   const handleAddBank = () => {
@@ -314,19 +345,28 @@ const AyarlarModal: React.FC<Props> = ({
   const handleSaveBanks = async (banksToSave?: BankMaster[]): Promise<BankMaster[]> => {
     setLoading(true);
     try {
+      console.log('handleSaveBanks - called with banksToSave length:', banksToSave?.length ?? 'undefined');
+      console.log('handleSaveBanks - banksToSave type:', typeof banksToSave, 'isArray:', Array.isArray(banksToSave));
+      console.log('handleSaveBanks - localBanks length:', localBanks?.length ?? 'undefined');
+      console.log('handleSaveBanks - localBanks type:', typeof localBanks, 'isArray:', Array.isArray(localBanks));
+      
       // Use provided banks or fallback to localBanks state
       // IMPORTANT: Check if banksToSave is provided and is an array
       let banks: BankMaster[];
       if (banksToSave !== undefined && banksToSave !== null) {
         if (!Array.isArray(banksToSave)) {
           console.error('banksToSave is not an array:', banksToSave, typeof banksToSave);
-          throw new Error('banksToSave parameter is not an array');
+          const errorMsg = `banksToSave parameter is not an array. Got: ${typeof banksToSave}`;
+          console.error('banksToSave error:', errorMsg, banksToSave);
+          throw new Error(errorMsg);
         }
         banks = banksToSave;
-      } else {
+    } else {
         if (!Array.isArray(localBanks)) {
           console.error('localBanks is not an array:', localBanks, typeof localBanks);
-          throw new Error('localBanks state is not an array');
+          const errorMsg = `localBanks state is not an array. Got: ${typeof localBanks}`;
+          console.error('localBanks error:', errorMsg, localBanks);
+          throw new Error(errorMsg);
         }
         banks = localBanks;
       }
@@ -334,7 +374,7 @@ const AyarlarModal: React.FC<Props> = ({
       // Final validation that banks is an array
       if (!Array.isArray(banks)) {
         console.error('Banks data is not an array after assignment:', banks, 'banksToSave:', banksToSave, 'localBanks:', localBanks);
-        throw new Error('Banks data is not an array');
+        throw new Error(`Banks data is not an array after assignment. Got: ${typeof banks}`);
       }
       
       if (banks.length === 0) {
@@ -501,7 +541,7 @@ const AyarlarModal: React.FC<Props> = ({
       maskeliKartNo: '',
       aktifMi: true,
       sonEkstreBorcu: 0,
-      guncelBorc: 0,
+      guncelBorc: null, // null = calculate from operations
     };
     setLocalCreditCards((prev) => [...prev, newCard]);
   };
@@ -510,27 +550,48 @@ const AyarlarModal: React.FC<Props> = ({
     if (!window.confirm(`${card.kartAdi} kartını silmek istediğinize emin misiniz?`)) {
         return;
       }
-    if (!card.id.startsWith('tmp-')) {
-      await apiDelete(`/api/credit-cards/${card.id}`);
+    try {
+      if (!card.id.startsWith('tmp-')) {
+        await apiDelete(`/api/credit-cards/${card.id}`);
+      }
+      // Remove from local state
+      const updated = localCreditCards.filter((c) => c.id !== card.id);
+      setLocalCreditCards(updated);
+      // Update parent state
+      setCreditCards(updated);
+      handleDirty();
+    } catch (error: any) {
+      console.error('Error deleting credit card:', error);
+      const errorMessage = error?.message || 'Kredi kartı silinirken bir hata oluştu.';
+      alert(`Hata: ${errorMessage}`);
     }
-    handleDirty();
-    setLocalCreditCards((prev) => prev.filter((c) => c.id !== card.id));
   };
 
   const handleSaveCreditCards = async () => {
     setLoading(true);
     try {
-      const payload = localCreditCards.map((c) => ({
-        id: c.id,
-        name: c.kartAdi,
-        bankId: c.bankaId || null,
-        limit: c.limit ?? null,
-        closingDay: c.hesapKesimGunu ?? null,
-        dueDay: c.sonOdemeGunu ?? null,
-        sonEkstreBorcu: c.sonEkstreBorcu ?? 0,
-        manualGuncelBorc: c.guncelBorc ?? null,
-        isActive: c.aktifMi,
-      }));
+      const payload = localCreditCards.map((c) => {
+        // Preserve user-entered values, even if 0 or null
+        // sonEkstreBorcu: always send the value (0 is valid)
+        // manualGuncelBorc: send null if not set, otherwise send the value (0 is valid)
+        return {
+          id: c.id,
+          name: c.kartAdi,
+          bankId: c.bankaId || null,
+          limit: c.limit ?? null,
+          closingDay: c.hesapKesimGunu ?? null,
+          dueDay: c.sonOdemeGunu ?? null,
+          sonEkstreBorcu: typeof c.sonEkstreBorcu === 'number' ? c.sonEkstreBorcu : 0,
+          manualGuncelBorc: typeof c.guncelBorc === 'number' ? c.guncelBorc : null,
+          isActive: c.aktifMi,
+        };
+      });
+
+      // DEBUG: Log payload being sent
+      console.log('[BUG-1 DEBUG] handleSaveCreditCards - Payload being sent:', JSON.stringify(payload, null, 2));
+      payload.forEach((p, idx) => {
+        console.log(`[BUG-1 DEBUG] Card ${idx} (${p.name}): sonEkstreBorcu=${p.sonEkstreBorcu}, manualGuncelBorc=${p.manualGuncelBorc}`);
+      });
 
       const saved = await apiPost<
         Array<{
@@ -550,12 +611,26 @@ const AyarlarModal: React.FC<Props> = ({
         }>
       >('/api/credit-cards/bulk-save', payload);
 
+      // DEBUG: Log backend response
+      console.log('[BUG-1 DEBUG] handleSaveCreditCards - Backend response:', JSON.stringify(saved, null, 2));
+      saved.forEach((c, idx) => {
+        console.log(`[BUG-1 DEBUG] Saved card ${idx} (${c.name}): sonEkstreBorcu=${c.sonEkstreBorcu}, manualGuncelBorc=${c.manualGuncelBorc}`);
+      });
+
       // Load and save credit card extras (only for asgariOran and maskeliKartNo)
       const cardExtras = loadCardExtrasFromStorage();
+      
+      // CRITICAL: Use backend values directly - backend returns the saved values
+      // Don't use userEnteredValues map - backend is the source of truth after save
       const mapped: CreditCard[] = saved.map((c) => {
         const limit = c.limit;
         const availableLimit = c.availableLimit;
         const extras = cardExtras[c.id] || { sonEkstreBorcu: 0, asgariOran: 0.4, maskeliKartNo: '' };
+        
+        // ALWAYS use backend values for sonEkstreBorcu and manualGuncelBorc
+        // Backend returns the saved values, so we should use them directly
+        const sonEkstreBorcu = c.sonEkstreBorcu !== undefined && c.sonEkstreBorcu !== null ? c.sonEkstreBorcu : 0;
+        const guncelBorc = c.manualGuncelBorc !== null && c.manualGuncelBorc !== undefined ? c.manualGuncelBorc : null;
 
         return {
           id: c.id,
@@ -569,13 +644,23 @@ const AyarlarModal: React.FC<Props> = ({
           sonOdemeGunu: c.dueDay ?? 1,
           maskeliKartNo: extras.maskeliKartNo,
           aktifMi: c.isActive,
-          sonEkstreBorcu: c.sonEkstreBorcu, // Use from backend, not localStorage
-          guncelBorc: c.currentDebt,
+          sonEkstreBorcu, // ALWAYS from backend
+          guncelBorc, // ALWAYS from backend
         };
       });
 
+      // DEBUG: Log final mapped values
+      console.log('[BUG-1 DEBUG] handleSaveCreditCards - Final mapped cards:', JSON.stringify(mapped.map(c => ({
+        id: c.id,
+        name: c.kartAdi,
+        sonEkstreBorcu: c.sonEkstreBorcu,
+        guncelBorc: c.guncelBorc
+      })), null, 2));
+
+      // CRITICAL FIX BUG-1: Update both local and parent state with backend response
+      // Backend is the source of truth - use its returned values
       setLocalCreditCards(mapped);
-      setCreditCards(mapped);
+      setCreditCards(mapped); // Update parent state so onClose handler sees latest data
       setDirty(false);
     } catch (error: any) {
       console.error('Credit cards save error:', error);
@@ -656,10 +741,32 @@ const AyarlarModal: React.FC<Props> = ({
         }
 
         if (loan.id.startsWith('tmp-')) {
-          const { id, createdAt, createdBy, updatedAt, updatedBy, deletedAt, deletedBy, bank, installments, ...createPayload } = loan;
+          // Create new loan - send only required fields
+          const createPayload = {
+            name: loan.name,
+            bankId: loan.bankId,
+            totalAmount: loan.totalAmount,
+            installmentCount: loan.installmentCount,
+            firstInstallmentDate: loan.firstInstallmentDate,
+            annualInterestRate: loan.annualInterestRate,
+            bsmvRate: loan.bsmvRate,
+            isActive: loan.isActive !== undefined ? loan.isActive : true,
+          };
+          console.log('Creating loan with payload:', createPayload);
           await apiPost<Loan>('/api/loans', createPayload);
-    } else {
-          const { id, createdAt, createdBy, deletedAt, deletedBy, bank, installments, ...updatePayload } = loan;
+        } else {
+          // Update existing loan - send only fields that can be updated
+          const updatePayload = {
+            name: loan.name,
+            bankId: loan.bankId,
+            totalAmount: loan.totalAmount,
+            installmentCount: loan.installmentCount,
+            firstInstallmentDate: loan.firstInstallmentDate,
+            annualInterestRate: loan.annualInterestRate,
+            bsmvRate: loan.bsmvRate,
+            isActive: loan.isActive !== undefined ? loan.isActive : true,
+          };
+          console.log('Updating loan with payload:', updatePayload);
           await apiPut<Loan>(`/api/loans/${loan.id}`, updatePayload);
         }
       }

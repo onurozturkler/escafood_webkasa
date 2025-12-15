@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { AppUser } from './models/user';
 import { BankMaster } from './models/bank';
 import { PosTerminal } from './models/pos';
@@ -10,6 +10,7 @@ import { GlobalSettings } from './models/settings';
 import { Cheque } from './models/cheque';
 import { DailyTransaction, DailyTransactionSource, DailyTransactionType } from './models/transaction';
 import { UpcomingPayment } from './models/upcomingPayment';
+import { DashboardSummary } from './models/dashboard';
 import { isoToDisplay, todayIso, getWeekdayTr, diffInDays } from './utils/date';
 import { formatTl } from './utils/money';
 import { getNextBelgeNo } from './utils/documentNo';
@@ -173,6 +174,10 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
   const [dailyTransactions, setDailyTransactions] = useState<DailyTransaction[]>([]);
   const [upcomingPayments, setUpcomingPayments] = useState<UpcomingPayment[]>([]);
   const [cekInitialTab, setCekInitialTab] = useState<'GIRIS' | 'CIKIS' | 'YENI' | 'RAPOR'>('GIRIS');
+  
+  // Dashboard summary state (authoritative balance source)
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
 
   // Fix Bug 6: Fetch credit cards from backend on mount
   useEffect(() => {
@@ -207,6 +212,8 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           const availableLimit = card.availableLimit; // Preserve null if limit is not set
           const extras = cardExtras[card.id] || { sonEkstreBorcu: 0, asgariOran: 0.4, maskeliKartNo: '' };
 
+          // CRITICAL: Use backend values for sonEkstreBorcu and guncelBorc, NOT localStorage
+          // localStorage is only used for asgariOran and maskeliKartNo
           return {
             id: card.id,
             bankaId: card.bankId || '',
@@ -214,13 +221,13 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
             kartLimit: limit, // Use backend limit (can be null)
             limit: limit, // Use backend limit (can be null)
             kullanilabilirLimit: availableLimit, // Use backend availableLimit (can be null)
-            asgariOran: extras.asgariOran, // Load from localStorage
+            asgariOran: extras.asgariOran, // From localStorage
             hesapKesimGunu: card.closingDay ?? 1,
             sonOdemeGunu: card.dueDay ?? 1,
-            maskeliKartNo: extras.maskeliKartNo, // Load from localStorage
+            maskeliKartNo: extras.maskeliKartNo, // From localStorage
             aktifMi: card.isActive,
-            sonEkstreBorcu: card.sonEkstreBorcu ?? 0, // Use from backend
-            guncelBorc: card.currentDebt, // Use backend currentDebt
+            sonEkstreBorcu: card.sonEkstreBorcu !== undefined && card.sonEkstreBorcu !== null ? card.sonEkstreBorcu : 0, // ALWAYS from backend
+            guncelBorc: card.manualGuncelBorc !== null && card.manualGuncelBorc !== undefined ? card.manualGuncelBorc : null, // ALWAYS from backend
           };
         });
 
@@ -352,6 +359,71 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
     }
   }, []);
 
+  // Load dashboard summary (authoritative balance source)
+  const loadDashboardSummary = async () => {
+    setSummaryLoading(true);
+    try {
+      const summaryData = await apiGet<DashboardSummary>('/api/dashboard/summary');
+      setSummary(summaryData);
+    } catch (error: any) {
+      console.error('Failed to load dashboard summary:', error);
+      // If backend is not running, don't show error to user - just use null
+      if (error?.message?.includes('Failed to fetch') || error?.message?.includes('ERR_CONNECTION_REFUSED')) {
+        console.warn('Backend server appears to be down. Dashboard summary will be unavailable until server is started.');
+      }
+      setSummary(null);
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
+
+  // Refresh all data (summary + transactions)
+  const refreshAll = async () => {
+    await Promise.all([
+      loadDashboardSummary(),
+      (async () => {
+        try {
+          const today = todayIso();
+          const response = await apiGet<{ items: any[]; totalCount: number }>(
+            `/api/transactions?from=${today}&to=${today}&sortKey=isoDate&sortDir=asc`
+          );
+          const mapped = response.items.map((tx) => ({
+            id: tx.id,
+            isoDate: tx.isoDate,
+            displayDate: isoToDisplay(tx.isoDate),
+            documentNo: tx.documentNo || '',
+            type: tx.type,
+            source: tx.source,
+            counterparty: tx.counterparty || '',
+            description: tx.description || '',
+            incoming: Number(tx.incoming) ?? 0,
+            outgoing: Number(tx.outgoing) ?? 0,
+            balanceAfter: Number(tx.balanceAfter) ?? 0,
+            bankId: tx.bankId || undefined,
+            bankDelta: tx.bankDelta || undefined,
+            displayIncoming: tx.displayIncoming || undefined,
+            displayOutgoing: tx.displayOutgoing || undefined,
+            createdAtIso: tx.createdAt,
+            createdBy: tx.createdBy,
+          }));
+          const sorted = [...mapped].sort((a, b) => {
+            const aCreated = a.createdAtIso || a.isoDate + 'T00:00:00';
+            const bCreated = b.createdAtIso || b.isoDate + 'T00:00:00';
+            return aCreated.localeCompare(bCreated);
+          });
+          setDailyTransactions(sorted);
+        } catch (error) {
+          console.error('Failed to refresh transactions:', error);
+        }
+      })(),
+    ]);
+  };
+
+  // Load dashboard summary on mount
+  useEffect(() => {
+    loadDashboardSummary();
+  }, []);
+
   // Fetch today's transactions from backend
   useEffect(() => {
     const fetchTodaysTransactions = async () => {
@@ -400,15 +472,32 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
     fetchTodaysTransactions();
   }, []);
 
+  // Ref to prevent useEffect from overwriting manual updates
+  const manualUpdateRef = useRef(false);
+  // Ref to track last manual update timestamp to prevent stale useEffect runs
+  const lastManualUpdateRef = useRef<number>(0);
+
   useEffect(() => {
+    // Skip if this is a manual update (we'll handle it separately)
+    // Also skip if a manual update happened very recently (within 500ms)
+    const now = Date.now();
+    if (manualUpdateRef.current || (now - lastManualUpdateRef.current < 500)) {
+      if (manualUpdateRef.current) {
+        manualUpdateRef.current = false;
+      }
+      return;
+    }
+
     const fetchUpcomingPayments = async () => {
     const payments: UpcomingPayment[] = [];
     const today = todayIso();
 
       // Fix Bug 7: Show all credit cards with debt, not just those with krediKartiVarMi flag
     creditCards
-      .filter((c) => c.sonEkstreBorcu > 0)
+      .filter((c) => c.aktifMi && (c.sonEkstreBorcu > 0 || (c.guncelBorc !== null && c.guncelBorc !== undefined && c.guncelBorc > 0)))
       .forEach((card) => {
+        // Use sonEkstreBorcu if > 0, otherwise use guncelBorc
+        const amount = card.sonEkstreBorcu > 0 ? card.sonEkstreBorcu : (card.guncelBorc || 0);
         const { dueIso, dueDisplay, daysLeft } = getCreditCardNextDue(card);
         payments.push({
           id: `cc-${card.id}`,
@@ -417,7 +506,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           name: card.kartAdi,
           dueDateIso: dueIso,
           dueDateDisplay: dueDisplay,
-          amount: card.sonEkstreBorcu,
+          amount,
           daysLeft,
         });
       });
@@ -437,12 +526,42 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           daysLeft: diffInDays(today, cek.vadeTarihi),
         });
       });
+
+    // Add loan installments to upcoming payments - only the next upcoming installment per loan
+    loans
+      .filter((loan) => loan.isActive && loan.installments && loan.installments.length > 0)
+      .forEach((loan) => {
+        // Find upcoming installments (status = BEKLENIYOR or GECIKMIS)
+        const upcomingInstallments = loan.installments!.filter(
+          (inst) => inst.status === 'BEKLENIYOR' || inst.status === 'GECIKMIS'
+        );
+        
+        // Only show the next upcoming installment (earliest due date)
+        if (upcomingInstallments.length > 0) {
+          // Sort by due date and take the first one (earliest)
+          const nextInstallment = [...upcomingInstallments].sort((a, b) => 
+            a.dueDate.localeCompare(b.dueDate)
+          )[0];
+          
+          payments.push({
+            id: `loan-${loan.id}-${nextInstallment.installmentNumber}`,
+            category: 'KREDI',
+            bankName: loan.bank?.name || '-',
+            name: loan.name,
+            dueDateIso: nextInstallment.dueDate,
+            dueDateDisplay: isoToDisplay(nextInstallment.dueDate),
+            amount: nextInstallment.totalAmount,
+            daysLeft: diffInDays(today, nextInstallment.dueDate),
+          });
+        }
+      });
+
     payments.sort((a, b) => a.daysLeft - b.daysLeft);
     setUpcomingPayments(payments);
     };
 
     fetchUpcomingPayments();
-  }, [banks, creditCards, cheques, dailyTransactions.length]); // Refresh when transactions change
+  }, [banks, creditCards, cheques, loans, dailyTransactions.length]); // Refresh when transactions change
 
   const bankDeltasById = useMemo(() => {
     return dailyTransactions.reduce((map, tx) => {
@@ -461,78 +580,8 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
     [banks, bankDeltasById]
   );
 
-  // BUG 1 FIX: Calculate cash balance from backend balanceAfter values
-  // Backend already calculates balanceAfter correctly starting from 0
-  // Use the last KASA transaction's balanceAfter, or BASE_CASH_BALANCE if no transactions
-  const cashBalance = useMemo(() => {
-    const kasaTransactions = dailyTransactions.filter((tx) => tx.source === 'KASA');
-    if (kasaTransactions.length === 0) return BASE_CASH_BALANCE;
-    
-    // FIX: Use balanceAfter from backend (already calculated correctly)
-    // Sort by createdAtIso (creation timestamp) to get the most recent transaction
-    // This ensures that when a new transaction is added, it's immediately reflected in cashBalance
-    // IMPORTANT: createdAtIso is the most reliable way to determine transaction order
-    const sorted = [...kasaTransactions].sort((a, b) => {
-      // Primary sort: by creation timestamp (most reliable)
-      const aCreated = a.createdAtIso || a.isoDate + 'T00:00:00';
-      const bCreated = b.createdAtIso || b.isoDate + 'T00:00:00';
-      const timeCompare = aCreated.localeCompare(bCreated);
-      if (timeCompare !== 0) return timeCompare;
-      
-      // Secondary sort: by date (if same timestamp)
-      if (a.isoDate !== b.isoDate) return a.isoDate.localeCompare(b.isoDate);
-      
-      // Tertiary sort: by documentNo (if same date and timestamp)
-      return a.documentNo.localeCompare(b.documentNo);
-    });
-    const lastTx = sorted[sorted.length - 1];
-    
-    // FIX: Use balanceAfter from backend, not recalculated value
-    // Test scenario: starting cash=0, Cash In 20.000 → balance 20.000, Cash Out 10.000 → balance 10.000, Cash In 50.000 → balance 60.000
-    // Ensure balanceAfter is a number (backend may return Decimal or string)
-    const balance = lastTx.balanceAfter != null ? Number(lastTx.balanceAfter) : BASE_CASH_BALANCE;
-    
-    // Additional validation: if balanceAfter is 0 or NaN, fallback to BASE_CASH_BALANCE
-    if (isNaN(balance) || balance === 0) {
-      console.warn('Cash balance calculation: balanceAfter is invalid, using BASE_CASH_BALANCE', {
-        lastTx: {
-          id: lastTx.id,
-          balanceAfter: lastTx.balanceAfter,
-          type: lastTx.type,
-        },
-      });
-      return BASE_CASH_BALANCE;
-    }
-    
-    // Debug log to track balance calculation
-    console.log('Cash balance calculation:', {
-      totalTransactions: dailyTransactions.length,
-      kasaTransactions: kasaTransactions.length,
-      allKasaTransactions: kasaTransactions.map(tx => ({
-        id: tx.id,
-        type: tx.type,
-        isoDate: tx.isoDate,
-        documentNo: tx.documentNo,
-        incoming: tx.incoming,
-        outgoing: tx.outgoing,
-        balanceAfter: tx.balanceAfter,
-        createdAtIso: tx.createdAtIso,
-      })),
-      sortedLastTx: {
-        id: lastTx.id,
-        type: lastTx.type,
-        isoDate: lastTx.isoDate,
-        documentNo: lastTx.documentNo,
-        incoming: lastTx.incoming,
-        outgoing: lastTx.outgoing,
-        balanceAfter: lastTx.balanceAfter,
-        createdAtIso: lastTx.createdAtIso,
-      },
-      calculatedBalance: balance,
-    });
-    
-    return balance;
-  }, [dailyTransactions]);
+  // Cash balance from authoritative backend summary (not client-side calculation)
+  const cashBalance = summary?.cashBalance ?? BASE_CASH_BALANCE;
 
   const chequesInCash = cheques.filter((c) => c.status === 'KASADA');
   const chequesTotal = chequesInCash.reduce((sum, c) => sum + c.tutar, 0);
@@ -561,6 +610,42 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
       (foundCustomer && `${foundCustomer.kod} - ${foundCustomer.ad}`) || values.muhatap || 'Diğer';
       const isBankToCash = values.kaynak === 'KASA_TRANSFER_BANKADAN';
       
+      console.log('handleNakitGirisSaved - values:', values);
+      console.log('handleNakitGirisSaved - isBankToCash:', isBankToCash);
+      console.log('handleNakitGirisSaved - values.bankaId:', values.bankaId);
+      
+      // Validate bankId for BANKA_KASA_TRANSFER
+      if (isBankToCash) {
+        if (!values.bankaId || !values.bankaId.trim()) {
+          alert('Banka transferi için banka seçmelisiniz.');
+          return;
+        }
+        // Validate UUID format
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        const trimmedBankId = values.bankaId.trim();
+        if (!uuidRegex.test(trimmedBankId)) {
+          console.error('Invalid bankId format:', trimmedBankId);
+          alert('Geçersiz banka ID formatı.');
+          return;
+        }
+      }
+      
+      // Prepare payload
+      const payload = {
+        isoDate: values.islemTarihiIso,
+        documentNo,
+        type: isBankToCash ? 'BANKA_KASA_TRANSFER' : 'NAKIT_TAHSILAT',
+        source: 'KASA', // BANKA_KASA_TRANSFER must have source=KASA to affect cash balance
+        counterparty,
+        description: values.aciklama || null,
+        incoming: values.tutar,
+        outgoing: 0,
+        bankDelta: isBankToCash ? -values.tutar : 0,
+        bankId: isBankToCash && values.bankaId ? values.bankaId.trim() : null,
+      };
+      
+      console.log('handleNakitGirisSaved - payload:', payload);
+      
       // Send to backend
       const response = await apiPost<{
         id: string;
@@ -577,18 +662,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         bankDelta: number;
         createdAt: string;
         createdBy: string;
-      }>('/api/transactions', {
-      isoDate: values.islemTarihiIso,
-      documentNo,
-        type: isBankToCash ? 'BANKA_KASA_TRANSFER' : 'NAKIT_TAHSILAT',
-        source: isBankToCash ? 'KASA' : 'KASA', // BANKA_KASA_TRANSFER must have source=KASA to affect cash balance
-      counterparty,
-        description: values.aciklama || null,
-      incoming: values.tutar,
-      outgoing: 0,
-        bankDelta: isBankToCash ? -values.tutar : 0,
-        bankId: isBankToCash && values.bankaId ? values.bankaId : null,
-      });
+      }>('/api/transactions', payload);
 
       // Map backend response to frontend format
       const tx: DailyTransaction = {
@@ -608,143 +682,14 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         createdAtIso: response.createdAt,
         createdBy: response.createdBy,
     };
-      // FIX: Refresh FIRST, then close modal - this ensures cashBalance updates immediately
-      const today = todayIso();
-      try {
-        const refreshResponse = await apiGet<{ items: any[]; totalCount: number }>(
-          `/api/transactions?from=${today}&to=${today}&sortKey=isoDate&sortDir=asc`
-        );
-        const refreshed = refreshResponse.items.map((tx) => ({
-          id: tx.id,
-          isoDate: tx.isoDate,
-          displayDate: isoToDisplay(tx.isoDate),
-          documentNo: tx.documentNo || '',
-          type: tx.type,
-          source: tx.source, // Backend returns storedSource as 'source'
-          counterparty: tx.counterparty || '',
-          description: tx.description || '',
-          incoming: tx.incoming,
-          outgoing: tx.outgoing,
-          balanceAfter: Number(tx.balanceAfter) ?? 0, // Ensure balanceAfter is a number
-          bankId: tx.bankId || undefined,
-          bankDelta: tx.bankDelta || undefined,
-          displayIncoming: tx.displayIncoming || undefined,
-          displayOutgoing: tx.displayOutgoing || undefined,
-          createdAtIso: tx.createdAt,
-          createdBy: tx.createdBy,
-        }));
-        
-        console.log('NakitGiris refresh - refreshed transactions:', refreshed);
-        console.log('NakitGiris refresh - KASA transactions:', refreshed.filter(tx => tx.source === 'KASA'));
-        
-        // FIX: Sort by createdAtIso (creation time) to show transactions in the order they were created
-        const sorted = [...refreshed].sort((a, b) => {
-          const aCreated = a.createdAtIso || a.isoDate + 'T00:00:00';
-          const bCreated = b.createdAtIso || b.isoDate + 'T00:00:00';
-          return aCreated.localeCompare(bCreated);
-        });
-        
-        // Update state - this will trigger cashBalance recalculation
-        setDailyTransactions(sorted);
-      } catch (refreshError) {
-        console.error('Failed to refresh transactions:', refreshError);
-        // Fallback: Map backend response to frontend format and add directly
-        const tx: DailyTransaction = {
-          id: response.id,
-          isoDate: response.isoDate,
-          displayDate: isoToDisplay(response.isoDate),
-          documentNo: response.documentNo || '',
-          type: response.type,
-          source: response.source,
-          counterparty: response.counterparty || '',
-          description: response.description || '',
-          incoming: response.incoming,
-          outgoing: response.outgoing,
-          balanceAfter: Number(response.balanceAfter) ?? 0,
-          bankId: response.bankId || undefined,
-          bankDelta: response.bankDelta || undefined,
-          createdAtIso: response.createdAt,
-          createdBy: response.createdBy,
-        };
-        addTransactions([tx]);
-      }
+      // Refresh summary and transactions after successful save
+      await refreshAll();
       
-      // Refresh banks to update bank balances
-      try {
-        const backendBanks = await apiGet<Array<{
-          id: string;
-          name: string;
-          accountNo: string | null;
-          iban: string | null;
-          isActive: boolean;
-          currentBalance: number;
-        }>>('/api/banks');
-        
-        const bankFlagsKey = 'esca-webkasa-bank-flags';
-        const savedFlags = localStorage.getItem(bankFlagsKey);
-        const bankFlags: Record<string, { cekKarnesiVarMi: boolean; posVarMi: boolean; krediKartiVarMi: boolean }> = savedFlags ? JSON.parse(savedFlags) : {};
-        
-        const mappedBanks: BankMaster[] = backendBanks.map((bank) => {
-          const flags = bankFlags[bank.id] || { cekKarnesiVarMi: false, posVarMi: false, krediKartiVarMi: false };
-          return {
-            id: bank.id,
-            bankaAdi: bank.name,
-            kodu: bank.accountNo ? bank.accountNo.substring(0, 4).toUpperCase() : 'BNK',
-            hesapAdi: bank.name + (bank.accountNo ? ` - ${bank.accountNo}` : ''),
-            iban: bank.iban || undefined,
-            acilisBakiyesi: bank.currentBalance,
-            aktifMi: bank.isActive,
-            cekKarnesiVarMi: flags.cekKarnesiVarMi,
-            posVarMi: flags.posVarMi,
-            krediKartiVarMi: flags.krediKartiVarMi,
-          };
-        });
-        setBanks(mappedBanks);
-      } catch (bankRefreshError) {
-        console.error('Failed to refresh banks:', bankRefreshError);
-        // Continue anyway
-      }
-      
-    setOpenForm(null);
-      
-      // Refresh banks to update bank balances
-      try {
-        const backendBanks = await apiGet<Array<{
-          id: string;
-          name: string;
-          accountNo: string | null;
-          iban: string | null;
-          isActive: boolean;
-          currentBalance: number;
-        }>>('/api/banks');
-        
-        const bankFlagsKey = 'esca-webkasa-bank-flags';
-        const savedFlags = localStorage.getItem(bankFlagsKey);
-        const bankFlags: Record<string, { cekKarnesiVarMi: boolean; posVarMi: boolean; krediKartiVarMi: boolean }> = savedFlags ? JSON.parse(savedFlags) : {};
-        
-        const mappedBanks: BankMaster[] = backendBanks.map((bank) => {
-          const flags = bankFlags[bank.id] || { cekKarnesiVarMi: false, posVarMi: false, krediKartiVarMi: false };
-          return {
-            id: bank.id,
-            bankaAdi: bank.name,
-            kodu: bank.accountNo ? bank.accountNo.substring(0, 4).toUpperCase() : 'BNK',
-            hesapAdi: bank.name + (bank.accountNo ? ` - ${bank.accountNo}` : ''),
-            iban: bank.iban || undefined,
-            acilisBakiyesi: bank.currentBalance,
-            aktifMi: bank.isActive,
-            cekKarnesiVarMi: flags.cekKarnesiVarMi,
-            posVarMi: flags.posVarMi,
-            krediKartiVarMi: flags.krediKartiVarMi,
-          };
-        });
-        setBanks(mappedBanks);
-      } catch (bankRefreshError) {
-        console.error('Failed to refresh banks:', bankRefreshError);
-        // Continue anyway
-      }
-    } catch (error) {
+      setOpenForm(null);
+    } catch (error: any) {
       console.error('Failed to save nakit giris:', error);
-      alert('İşlem kaydedilemedi. Lütfen tekrar deneyin.');
+      const errorMessage = error?.message || error?.response?.data?.message || 'İşlem kaydedilemedi. Lütfen tekrar deneyin.';
+      alert(`Hata: ${errorMessage}`);
     }
   };
 
@@ -893,7 +838,11 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         console.error('Failed to refresh banks:', bankRefreshError);
         // Continue anyway
       }
-    setOpenForm(null);
+      
+      // Refresh summary and transactions after successful save
+      await refreshAll();
+      
+      setOpenForm(null);
     } catch (error: any) {
       console.error('Failed to save nakit cikis:', error);
       console.error('Error details:', {
@@ -1053,7 +1002,9 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         setCheques((prev) => prev.map((c) => (c.id === values.cekId ? { ...c, status: 'TAHSIL_EDILDI' } : c)));
     }
 
-    addTransactions([tx]);
+    // Refresh summary and transactions after successful save
+    await refreshAll();
+    
     setOpenForm(null);
     } catch (error: any) {
       alert(`Hata: ${error.message || 'Banka nakit girişi kaydedilemedi'}`);
@@ -1189,8 +1140,10 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           createdBy: inResponse.createdBy,
         };
 
-      addTransactions([outTx, inTx]);
-        setOpenForm(null);
+      // Refresh summary and transactions after successful save
+      await refreshAll();
+      
+      setOpenForm(null);
         return;
     } else {
       const documentNo = getNextBelgeNo('BNK-CKS', values.islemTarihiIso, dailyTransactions);
@@ -1269,54 +1222,9 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           createdBy: currentUser.email,
         };
 
-        addTransactions([tx]);
-            
-            // FIX: Refresh credit cards after payment to update currentDebt
-            try {
-              const backendCreditCards = await apiGet<Array<{
-                id: string;
-                name: string;
-                bankId: string | null;
-                limit: number | null;
-                closingDay: number | null;
-                dueDay: number | null;
-                isActive: boolean;
-                currentDebt: number;
-                availableLimit: number | null;
-                lastOperationDate: string | null;
-              }>>('/api/credit-cards');
-              
-              const cardExtrasKey = 'esca-webkasa-card-extras';
-              const savedExtras = localStorage.getItem(cardExtrasKey);
-              const cardExtras: Record<string, { sonEkstreBorcu: number; asgariOran: number; maskeliKartNo: string }> = savedExtras ? JSON.parse(savedExtras) : {};
-              
-              const mappedCreditCards: CreditCard[] = backendCreditCards.map((card) => {
-                const limit = card.limit;
-                const availableLimit = card.availableLimit;
-                const extras = cardExtras[card.id] || { sonEkstreBorcu: 0, asgariOran: 0.4, maskeliKartNo: '' };
-                
-                return {
-                  id: card.id,
-                  bankaId: card.bankId || '',
-                  kartAdi: card.name,
-                  kartLimit: limit,
-                  limit: limit,
-                  kullanilabilirLimit: availableLimit,
-                  asgariOran: extras.asgariOran,
-                  hesapKesimGunu: card.closingDay ?? 1,
-                  sonOdemeGunu: card.dueDay ?? 1,
-                  maskeliKartNo: extras.maskeliKartNo,
-                  aktifMi: card.isActive,
-                  sonEkstreBorcu: card.sonEkstreBorcu ?? 0, // Use from backend
-                  guncelBorc: card.currentDebt, // FIX: Use updated currentDebt from backend
-                };
-              });
-              
-              setCreditCards(mappedCreditCards);
-            } catch (refreshError) {
-              console.error('Failed to refresh credit cards after payment:', refreshError);
-            }
-            
+        // Refresh summary and transactions after successful save
+        await refreshAll();
+        
         setOpenForm(null);
         return;
           } catch (error: any) {
@@ -1324,6 +1232,134 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
             return;
           }
         }
+
+      // Handle loan payment
+      if (values.islemTuru === 'KREDI_ODEME' && values.loanId && values.installmentId) {
+        try {
+          const response = await apiPost<{
+            loan: any;
+            transaction: {
+              id: string;
+              isoDate: string;
+              type: string;
+              source: string;
+              bankId: string | null;
+              bankDelta: number;
+              outgoing: number;
+            };
+          }>(`/api/loans/${values.loanId}/installments/${values.installmentId}/pay`, {
+            isoDate: values.islemTarihiIso,
+            description: values.aciklama || null,
+          });
+
+          // Reload loans to get updated installment status FIRST
+          const updatedLoans = await apiGet<Loan[]>('/api/loans');
+          
+          // DEBUG: Log updated loans
+          console.log('[BUG-2 DEBUG] handleBankaNakitCikisSaved - Updated loans from API:', JSON.stringify(updatedLoans.map(l => ({
+            id: l.id,
+            name: l.name,
+            installments: l.installments?.map(inst => ({
+              installmentNumber: inst.installmentNumber,
+              status: inst.status,
+              dueDate: inst.dueDate
+            }))
+          })), null, 2));
+          
+          // Refresh summary and transactions after successful save
+          await refreshAll();
+          
+          // Mark as manual update to prevent useEffect from overwriting
+          manualUpdateRef.current = true;
+          lastManualUpdateRef.current = Date.now();
+          
+          // Update loans state AFTER refreshAll to ensure upcoming payments uses updated data
+          setLoans(updatedLoans);
+          
+          // Manually trigger upcoming payments refresh after loans are updated
+          // This ensures the paid installment is removed and next one is shown
+          // IMPORTANT: Use updatedLoans directly, not the loans state (which may be stale)
+          const payments: UpcomingPayment[] = [];
+          const today = todayIso();
+          
+          // Credit cards
+          creditCards
+            .filter((c) => c.aktifMi && (c.sonEkstreBorcu > 0 || (c.guncelBorc !== null && c.guncelBorc !== undefined && c.guncelBorc > 0)))
+            .forEach((card) => {
+              const amount = card.sonEkstreBorcu > 0 ? card.sonEkstreBorcu : (card.guncelBorc || 0);
+              const { dueIso, dueDisplay, daysLeft } = getCreditCardNextDue(card);
+              payments.push({
+                id: `cc-${card.id}`,
+                category: 'KREDI_KARTI',
+                bankName: banks.find((b) => b.id === card.bankaId)?.bankaAdi || '-',
+                name: card.kartAdi,
+                dueDateIso: dueIso,
+                dueDateDisplay: dueDisplay,
+                amount,
+                daysLeft,
+              });
+            });
+          
+          // Cheques
+          cheques
+            .filter((c) => c.direction === 'BORC')
+            .filter((c) => ['KASADA', 'BANKADA_TAHSILDE', 'ODEMEDE'].includes(c.status))
+            .forEach((cek) => {
+              payments.push({
+                id: `cek-${cek.id}`,
+                category: 'CEK',
+                bankName: cek.bankaAdi || '-',
+                name: cek.lehtar,
+                dueDateIso: cek.vadeTarihi,
+                dueDateDisplay: isoToDisplay(cek.vadeTarihi),
+                amount: cek.tutar,
+                daysLeft: diffInDays(today, cek.vadeTarihi),
+              });
+            });
+          
+          // Loans - only show next upcoming installment (exclude paid ones)
+          // CRITICAL: Use updatedLoans directly, not loans state (which may be stale)
+          updatedLoans
+            .filter((loan) => loan.isActive && loan.installments && loan.installments.length > 0)
+            .forEach((loan) => {
+              // Find upcoming installments (status = BEKLENIYOR or GECIKMIS) - exclude ODEME_ALINDI
+              const upcomingInstallments = loan.installments!.filter(
+                (inst) => inst.status === 'BEKLENIYOR' || inst.status === 'GECIKMIS'
+              );
+              
+              // Only show the next upcoming installment (earliest due date)
+              if (upcomingInstallments.length > 0) {
+                const nextInstallment = [...upcomingInstallments].sort((a, b) => 
+                  a.dueDate.localeCompare(b.dueDate)
+                )[0];
+                
+                payments.push({
+                  id: `loan-${loan.id}-${nextInstallment.installmentNumber}`,
+                  category: 'KREDI',
+                  bankName: loan.bank?.name || '-',
+                  name: loan.name,
+                  dueDateIso: nextInstallment.dueDate,
+                  dueDateDisplay: isoToDisplay(nextInstallment.dueDate),
+                  amount: nextInstallment.totalAmount,
+                  daysLeft: diffInDays(today, nextInstallment.dueDate),
+                });
+              }
+            });
+          
+          payments.sort((a, b) => a.daysLeft - b.daysLeft);
+          
+          // DEBUG: Log final upcoming payments
+          console.log('[BUG-2 DEBUG] handleBankaNakitCikisSaved - Final upcoming payments:', JSON.stringify(payments, null, 2));
+          
+          setUpcomingPayments(payments);
+          
+          setOpenForm(null);
+          return;
+        } catch (error: any) {
+          alert(`Hata: ${error.message || 'Kredi ödemesi kaydedilemedi'}`);
+          return;
+        }
+      }
 
         // Fix Bug 2: Get supplier for supplier payments
         const selectedSupplier = values.supplierId ? suppliers.find((s) => s.id === values.supplierId) : undefined;
@@ -1401,37 +1437,38 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           createdBy: response.createdBy,
         };
 
-      addTransactions([tx]);
-        
-        // BUG 7 FIX: Update cheque status to ODEMEDE and set supplierId after transaction is created
-        if (chequeToUpdate) {
-          try {
-            await apiPut<{
-              id: string;
-              status: string;
-              supplierId: string | null;
-            }>(`/api/cheques/${chequeToUpdate.id}/status`, {
-              newStatus: 'ODEMEDE', // BUG 7 FIX: Status should be ODEMEDE when cheque is given to supplier
-              isoDate: values.islemTarihiIso,
-              supplierId: chequeToUpdate.supplierId, // BUG 7 FIX: Set supplierId when cheque is given to supplier
-              description: description || null,
-            });
-            
-            // Update local cheque state
-            setCheques((prev) =>
-              prev.map((c) => 
-                c.id === chequeToUpdate.id 
-                  ? { ...c, status: 'ODEMEDE', kasaMi: false, tedarikciId: chequeToUpdate.supplierId || undefined }
-                  : c
-              )
-            );
-          } catch (chequeError: any) {
-            console.error('Failed to update cheque status:', chequeError);
-            // Don't block the transaction - just log the error
-          }
+      // BUG 7 FIX: Update cheque status to ODEMEDE and set supplierId after transaction is created
+      if (chequeToUpdate) {
+        try {
+          await apiPut<{
+            id: string;
+            status: string;
+            supplierId: string | null;
+          }>(`/api/cheques/${chequeToUpdate.id}/status`, {
+            newStatus: 'ODEMEDE', // BUG 7 FIX: Status should be ODEMEDE when cheque is given to supplier
+            isoDate: values.islemTarihiIso,
+            supplierId: chequeToUpdate.supplierId, // BUG 7 FIX: Set supplierId when cheque is given to supplier
+            description: description || null,
+          });
+          
+          // Update local cheque state
+          setCheques((prev) =>
+            prev.map((c) => 
+              c.id === chequeToUpdate.id 
+                ? { ...c, status: 'ODEMEDE', kasaMi: false, tedarikciId: chequeToUpdate.supplierId || undefined }
+                : c
+            )
+          );
+        } catch (chequeError: any) {
+          console.error('Failed to update cheque status:', chequeError);
+          // Don't block the transaction - just log the error
         }
-        
-    setOpenForm(null);
+      }
+      
+      // Refresh summary and transactions after successful save
+      await refreshAll();
+      
+      setOpenForm(null);
         return;
       }
     } catch (error: any) {
@@ -1553,7 +1590,9 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         createdBy: komisyonResponse.createdBy,
       };
 
-    addTransactions([brutTx, komisyonTx]);
+    // Refresh summary and transactions after successful save
+    await refreshAll();
+    
     setOpenForm(null);
     } catch (error: any) {
       alert(`Hata: ${error.message || 'POS tahsilat kaydedilemedi'}`);
@@ -1657,6 +1696,9 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
       } catch (refreshError) {
         console.error('Failed to refresh credit cards after expense:', refreshError);
       }
+      
+      // Refresh summary and transactions after successful save
+      await refreshAll();
       
       setOpenForm(null);
     } catch (error: any) {
@@ -2131,7 +2173,11 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
                         <td className="py-2 px-2">{tx.counterparty}</td>
                         <td className="py-2 px-2">{tx.description}</td>
                         <td className="py-2 px-2 text-right text-emerald-600">
-                          {tx.displayIncoming !== undefined ? formatTl(tx.displayIncoming) : tx.incoming ? formatTl(tx.incoming) : '-'}
+                          {tx.displayIncoming !== undefined && tx.displayIncoming > 0
+                            ? formatTl(tx.displayIncoming)
+                            : tx.incoming && tx.incoming > 0
+                            ? formatTl(tx.incoming)
+                            : '-'}
                         </td>
                         <td className="py-2 px-2 text-right text-rose-600">
                           {/* BUG 2 FIX: Only show displayOutgoing if it's > 0, otherwise show outgoing if > 0, otherwise show '-' */}
@@ -2226,6 +2272,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         cheques={cheques}
         creditCards={creditCards}
         suppliers={suppliers}
+        loans={loans}
       />
       <PosTahsilat
         isOpen={openForm === 'POS_TAHSILAT'}
@@ -2284,12 +2331,23 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
                 limit: number | null;
                 closingDay: number | null;
                 dueDay: number | null;
+                sonEkstreBorcu: number;
+                manualGuncelBorc: number | null;
                 isActive: boolean;
                 currentDebt: number;
                 availableLimit: number | null;
+                lastOperationDate: string | null;
                 bank?: { id: string; name: string } | null;
               }>>('/api/credit-cards'),
             ]);
+            
+            // DEBUG: Log backend response on modal close
+            console.log('[BUG-1 DEBUG] AyarlarModal onClose - Backend credit cards response:', JSON.stringify(backendCreditCards.map(c => ({
+              id: c.id,
+              name: c.name,
+              sonEkstreBorcu: c.sonEkstreBorcu,
+              manualGuncelBorc: c.manualGuncelBorc
+            })), null, 2));
             
             // Fix: Load boolean flags from localStorage (they're not stored in backend)
             const bankFlagsKey = 'esca-webkasa-bank-flags';
@@ -2312,7 +2370,8 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
               };
             });
             
-            // Fix: Load credit card extras from localStorage
+            // Fix: Load credit card extras from localStorage (only for asgariOran and maskeliKartNo)
+            // IMPORTANT: sonEkstreBorcu and guncelBorc come from backend, NOT from localStorage
             const cardExtrasKey = 'esca-webkasa-card-extras';
             const savedExtras = localStorage.getItem(cardExtrasKey);
             const cardExtras: Record<string, { sonEkstreBorcu: number; asgariOran: number; maskeliKartNo: string }> = savedExtras ? JSON.parse(savedExtras) : {};
@@ -2322,25 +2381,112 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
               const availableLimit = card.availableLimit; // Preserve null if limit is not set
               const extras = cardExtras[card.id] || { sonEkstreBorcu: 0, asgariOran: 0.4, maskeliKartNo: '' };
               
-              return {
+              // CRITICAL: Use backend values for sonEkstreBorcu and guncelBorc, NOT localStorage
+              // localStorage is only used for asgariOran and maskeliKartNo
+              const mappedCard = {
                 id: card.id,
                 bankaId: card.bankId || '',
                 kartAdi: card.name,
                 kartLimit: limit, // Use backend limit (can be null)
                 limit: limit, // Use backend limit (can be null)
                 kullanilabilirLimit: availableLimit, // Use backend availableLimit (can be null)
-                asgariOran: extras.asgariOran,
+                asgariOran: extras.asgariOran, // From localStorage
                 hesapKesimGunu: card.closingDay ?? 1,
                 sonOdemeGunu: card.dueDay ?? 1,
-                maskeliKartNo: extras.maskeliKartNo,
+                maskeliKartNo: extras.maskeliKartNo, // From localStorage
                 aktifMi: card.isActive,
-                sonEkstreBorcu: card.sonEkstreBorcu ?? 0, // Use from backend
-                guncelBorc: card.currentDebt,
+                sonEkstreBorcu: card.sonEkstreBorcu !== undefined && card.sonEkstreBorcu !== null ? card.sonEkstreBorcu : 0, // ALWAYS from backend
+                guncelBorc: card.manualGuncelBorc !== null && card.manualGuncelBorc !== undefined ? card.manualGuncelBorc : null, // ALWAYS from backend
               };
+              
+              // DEBUG: Log mapping
+              console.log(`[BUG-1 DEBUG] Mapping card ${card.name}: backend sonEkstreBorcu=${card.sonEkstreBorcu}, manualGuncelBorc=${card.manualGuncelBorc} -> mapped sonEkstreBorcu=${mappedCard.sonEkstreBorcu}, guncelBorc=${mappedCard.guncelBorc}`);
+              
+              return mappedCard;
             });
+            
+            // DEBUG: Log final mapped cards
+            console.log('[BUG-1 DEBUG] AyarlarModal onClose - Final mapped credit cards:', JSON.stringify(mappedCreditCards.map(c => ({
+              id: c.id,
+              name: c.kartAdi,
+              sonEkstreBorcu: c.sonEkstreBorcu,
+              guncelBorc: c.guncelBorc
+            })), null, 2));
+            
+            // Mark as manual update to prevent useEffect from overwriting
+            manualUpdateRef.current = true;
+            lastManualUpdateRef.current = Date.now();
             
             setBanks(mappedBanks);
             setCreditCards(mappedCreditCards);
+            
+            // Manually refresh upcoming payments with updated credit cards
+            const payments: UpcomingPayment[] = [];
+            const today = todayIso();
+            
+            // Credit cards - use updated mappedCreditCards
+            mappedCreditCards
+              .filter((c) => c.aktifMi && (c.sonEkstreBorcu > 0 || (c.guncelBorc !== null && c.guncelBorc !== undefined && c.guncelBorc > 0)))
+              .forEach((card) => {
+                const amount = card.sonEkstreBorcu > 0 ? card.sonEkstreBorcu : (card.guncelBorc || 0);
+                const { dueIso, dueDisplay, daysLeft } = getCreditCardNextDue(card);
+                payments.push({
+                  id: `cc-${card.id}`,
+                  category: 'KREDI_KARTI',
+                  bankName: mappedBanks.find((b) => b.id === card.bankaId)?.bankaAdi || '-',
+                  name: card.kartAdi,
+                  dueDateIso: dueIso,
+                  dueDateDisplay: dueDisplay,
+                  amount,
+                  daysLeft,
+                });
+              });
+            
+            // Cheques
+            cheques
+              .filter((c) => c.direction === 'BORC')
+              .filter((c) => ['KASADA', 'BANKADA_TAHSILDE', 'ODEMEDE'].includes(c.status))
+              .forEach((cek) => {
+                payments.push({
+                  id: `cek-${cek.id}`,
+                  category: 'CEK',
+                  bankName: cek.bankaAdi || '-',
+                  name: cek.lehtar,
+                  dueDateIso: cek.vadeTarihi,
+                  dueDateDisplay: isoToDisplay(cek.vadeTarihi),
+                  amount: cek.tutar,
+                  daysLeft: diffInDays(today, cek.vadeTarihi),
+                });
+              });
+            
+            // Loans
+            loans
+              .filter((loan) => loan.isActive && loan.installments && loan.installments.length > 0)
+              .forEach((loan) => {
+                const upcomingInstallments = loan.installments!.filter(
+                  (inst) => inst.status === 'BEKLENIYOR' || inst.status === 'GECIKMIS'
+                );
+                
+                if (upcomingInstallments.length > 0) {
+                  const nextInstallment = [...upcomingInstallments].sort((a, b) => 
+                    a.dueDate.localeCompare(b.dueDate)
+                  )[0];
+                  
+                  payments.push({
+                    id: `loan-${loan.id}-${nextInstallment.installmentNumber}`,
+                    category: 'KREDI',
+                    bankName: loan.bank?.name || '-',
+                    name: loan.name,
+                    dueDateIso: nextInstallment.dueDate,
+                    dueDateDisplay: isoToDisplay(nextInstallment.dueDate),
+                    amount: nextInstallment.totalAmount,
+                    daysLeft: diffInDays(today, nextInstallment.dueDate),
+                  });
+                }
+              });
+            
+            payments.sort((a, b) => a.daysLeft - b.daysLeft);
+            setUpcomingPayments(payments);
           } catch (error) {
             console.error('Failed to reload data after settings close:', error);
             // Don't show alert for connection errors - backend might be down

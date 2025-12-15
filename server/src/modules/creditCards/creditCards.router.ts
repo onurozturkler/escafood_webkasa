@@ -4,6 +4,7 @@ import {
   getCreditCard,
   createCreditCard,
   updateCreditCard,
+  deleteCreditCard,
   createExpense,
   createPayment,
   bulkSave,
@@ -47,6 +48,7 @@ router.post('/', validate(createCreditCardSchema), createCreditCard);
 router.post('/bulk-save', bulkSave);
 router.get('/:id', getCreditCard);
 router.put('/:id', validate(updateCreditCardSchema), updateCreditCard);
+router.delete('/:id', deleteCreditCard);
 router.post('/expense', validate(createExpenseSchema), createExpense);
 router.post('/payment', validate(createPaymentSchema), createPayment);
 

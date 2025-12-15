@@ -101,6 +101,14 @@ export class CreditCardsService {
         ? Number(card.sonEkstreBorcu) 
         : 0;
 
+      // DEBUG: Log card values from DB
+      console.log(`[BUG-1 DEBUG] listCreditCards - Card ${card.id} (${card.name}):`, {
+        db_sonEkstreBorcu: card.sonEkstreBorcu?.toString(),
+        db_manualGuncelBorc: card.manualGuncelBorc?.toString(),
+        mapped_sonEkstreBorcu: sonEkstreBorcu,
+        mapped_manualGuncelBorc: manualGuncelBorc
+      });
+
       return {
         id: card.id,
         name: card.name,
@@ -597,6 +605,14 @@ export class CreditCardsService {
     }>,
     userId: string
   ): Promise<CreditCardDto[]> {
+    // DEBUG: Log incoming payload
+    console.log('[BUG-1 DEBUG] bulkSaveCreditCards - Incoming payload:', JSON.stringify(payload.map(p => ({
+      id: p.id,
+      name: p.name,
+      sonEkstreBorcu: p.sonEkstreBorcu,
+      manualGuncelBorc: p.manualGuncelBorc
+    })), null, 2));
+    
     const results: CreditCardDto[] = [];
 
     for (const item of payload) {
@@ -676,6 +692,23 @@ export class CreditCardsService {
           continue; // Skip deleted or non-existent cards
         }
 
+        // DEBUG: Log what will be written to DB
+        const dbData = {
+          name: item.name,
+          bankId: item.bankId !== undefined ? item.bankId : existing.bankId,
+          limit: item.limit !== undefined ? item.limit : existing.limit,
+          closingDay: item.closingDay !== undefined ? item.closingDay : existing.closingDay,
+          dueDay: item.dueDay !== undefined ? item.dueDay : existing.dueDay,
+          sonEkstreBorcu: item.sonEkstreBorcu !== undefined ? item.sonEkstreBorcu : existing.sonEkstreBorcu,
+          manualGuncelBorc: item.manualGuncelBorc !== undefined ? item.manualGuncelBorc : existing.manualGuncelBorc,
+          isActive: item.isActive !== undefined ? item.isActive : existing.isActive,
+        };
+        console.log(`[BUG-1 DEBUG] Updating card ${item.id} (${item.name}):`, JSON.stringify({
+          incoming: { sonEkstreBorcu: item.sonEkstreBorcu, manualGuncelBorc: item.manualGuncelBorc },
+          existing: { sonEkstreBorcu: existing.sonEkstreBorcu, manualGuncelBorc: existing.manualGuncelBorc },
+          willWrite: { sonEkstreBorcu: dbData.sonEkstreBorcu, manualGuncelBorc: dbData.manualGuncelBorc }
+        }, null, 2));
+
         const updated = await prisma.creditCard.update({
           where: { id: item.id },
           data: {
@@ -684,6 +717,11 @@ export class CreditCardsService {
             limit: item.limit !== undefined ? item.limit : existing.limit,
             closingDay: item.closingDay !== undefined ? item.closingDay : existing.closingDay,
             dueDay: item.dueDay !== undefined ? item.dueDay : existing.dueDay,
+            // Always update sonEkstreBorcu and manualGuncelBorc if provided (even if 0 or null)
+            // This ensures user-entered values are preserved
+            // CRITICAL FIX: Frontend always sends these fields (null or number), so we should always update them
+            // If frontend sends null, it means user wants to clear the value (let it be calculated from operations)
+            // If frontend sends a number, it means user wants to set a manual value
             sonEkstreBorcu: item.sonEkstreBorcu !== undefined ? item.sonEkstreBorcu : existing.sonEkstreBorcu,
             manualGuncelBorc: item.manualGuncelBorc !== undefined ? item.manualGuncelBorc : existing.manualGuncelBorc,
             isActive: item.isActive !== undefined ? item.isActive : existing.isActive,
@@ -727,6 +765,13 @@ export class CreditCardsService {
           ? Number(updated.sonEkstreBorcu) 
           : 0;
 
+        // DEBUG: Log what will be returned
+        console.log(`[BUG-1 DEBUG] Card ${updated.id} (${updated.name}) after update - DB values:`, {
+          sonEkstreBorcu: updated.sonEkstreBorcu?.toString(),
+          manualGuncelBorc: updated.manualGuncelBorc?.toString(),
+          mapped: { sonEkstreBorcu, manualGuncelBorc }
+        });
+
         results.push({
           id: updated.id,
           name: updated.name,
@@ -751,7 +796,36 @@ export class CreditCardsService {
       }
     }
 
+    // DEBUG: Log final results
+    console.log('[BUG-1 DEBUG] bulkSaveCreditCards - Final results:', JSON.stringify(results.map(r => ({
+      id: r.id,
+      name: r.name,
+      sonEkstreBorcu: r.sonEkstreBorcu,
+      manualGuncelBorc: r.manualGuncelBorc
+    })), null, 2));
+    
     return results;
+  }
+
+  /**
+   * Soft delete a credit card
+   */
+  async softDeleteCreditCard(id: string, deletedBy: string): Promise<void> {
+    const card = await prisma.creditCard.findUnique({
+      where: { id },
+    });
+
+    if (!card || card.deletedAt) {
+      throw new Error('Credit card not found');
+    }
+
+    await prisma.creditCard.update({
+      where: { id },
+      data: {
+        deletedAt: new Date(),
+        deletedBy,
+      },
+    });
   }
 }
 

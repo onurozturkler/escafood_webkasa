@@ -12,6 +12,7 @@ const baseLoanSchema = z
     firstInstallmentDate: z.string().regex(isoDateRegex, 'Geçerli bir tarih formatı gerekir (YYYY-MM-DD)'),
     annualInterestRate: z.number().nonnegative('Yıllık faiz oranı negatif olamaz'),
     bsmvRate: z.number().nonnegative('BSMV oranı negatif olamaz'),
+    isActive: z.boolean().optional(),
   })
   .strict();
 

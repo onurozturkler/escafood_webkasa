@@ -11,5 +11,5 @@ export interface CreditCard {
   maskeliKartNo: string;
   aktifMi: boolean;
   sonEkstreBorcu: number;
-  guncelBorc: number;
+  guncelBorc: number | null; // null = calculate from operations, number = manual override
 }

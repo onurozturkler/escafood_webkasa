@@ -68,6 +68,22 @@ export async function updateCreditCard(req: Request, res: Response): Promise<voi
   }
 }
 
+export async function deleteCreditCard(req: Request, res: Response): Promise<void> {
+  const { id } = req.params;
+  const deletedBy = getUserId(req);
+
+  try {
+    await creditCardsService.softDeleteCreditCard(id, deletedBy);
+    res.status(204).send();
+  } catch (error: any) {
+    if (error.message === 'Credit card not found') {
+      res.status(404).json({ message: error.message });
+      return;
+    }
+    res.status(500).json({ message: error.message || 'Failed to delete credit card' });
+  }
+}
+
 export async function createExpense(req: Request, res: Response): Promise<void> {
   const data = req.body as CreateExpenseDto;
   const createdBy = getUserId(req);

@@ -70,14 +70,26 @@ function calculateLoanSchedule(
     ));
     const dueDateIso = dueDate.toISOString().slice(0, 10);
 
+    // Round values to 2 decimal places and ensure they fit in Decimal(18,2)
+    // Decimal(18,2) can hold values up to 9999999999999999.99 (10^16 - 1)
+    const MAX_DECIMAL_VALUE = 9999999999999999.99;
+    
+    const roundTo2Decimals = (value: number): number => {
+      const rounded = Math.round(value * 100) / 100;
+      if (Math.abs(rounded) > MAX_DECIMAL_VALUE) {
+        throw new Error(`Numeric overflow: value ${rounded} exceeds maximum Decimal(18,2) value of ${MAX_DECIMAL_VALUE}`);
+      }
+      return rounded;
+    };
+
     schedule.push({
       installmentNumber: i,
       dueDate: dueDateIso,
-      principal,
-      interest,
-      bsmv,
-      totalAmount: totalPayment,
-      remainingPrincipal: remaining,
+      principal: roundTo2Decimals(principal),
+      interest: roundTo2Decimals(interest),
+      bsmv: roundTo2Decimals(bsmv),
+      totalAmount: roundTo2Decimals(totalPayment),
+      remainingPrincipal: roundTo2Decimals(remaining),
     });
   }
 
@@ -105,6 +117,19 @@ export class LoansService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    // DEBUG: Log raw loans from DB
+    console.log('[BUG-2 DEBUG] listLoans - Raw loans from DB:', JSON.stringify(loans.map(l => ({
+      id: l.id,
+      name: l.name,
+      installments: l.installments.map(inst => ({
+        id: inst.id,
+        installmentNumber: inst.installmentNumber,
+        status: inst.status,
+        dueDate: inst.dueDate,
+        paidDate: inst.paidDate
+      }))
+    })), null, 2));
 
     return loans.map((loan) => ({
       id: loan.id,
@@ -356,6 +381,10 @@ export class LoansService {
     // For bank transactions, we don't calculate cash balance
     const balanceAfter = 0; // Bank transactions don't affect cash balance
 
+    // DEBUG: Log payment attempt
+    console.log(`[BUG-2 DEBUG] payInstallment - Starting payment for loanId=${loanId}, installmentId=${installmentId}`);
+    console.log(`[BUG-2 DEBUG] payInstallment - Installment status before: ${installment.status}, dueDate: ${installment.dueDate}`);
+
     const result = await prisma.$transaction(async (tx) => {
       // Create transaction
       const transaction = await tx.transaction.create({
@@ -385,7 +414,7 @@ export class LoansService {
       });
 
       // Update installment status
-      await tx.loanInstallment.update({
+      const updatedInstallment = await tx.loanInstallment.update({
         where: { id: installmentId },
         data: {
           status: 'ODEME_ALINDI',
@@ -395,6 +424,9 @@ export class LoansService {
           updatedAt: new Date(),
         },
       });
+
+      // DEBUG: Log installment update
+      console.log(`[BUG-2 DEBUG] payInstallment - Installment ${installmentId} updated: status=${updatedInstallment.status}, paidDate=${updatedInstallment.paidDate}`);
 
       return transaction;
     });
@@ -406,6 +438,13 @@ export class LoansService {
     if (!loan) {
       throw new Error('Loan not found after payment');
     }
+
+    // DEBUG: Log returned loan installments
+    console.log(`[BUG-2 DEBUG] payInstallment - Returned loan ${loanId} installments:`, loan.installments?.map(inst => ({
+      installmentNumber: inst.installmentNumber,
+      status: inst.status,
+      dueDate: inst.dueDate
+    })));
 
     return { loan, transaction };
   }

@@ -309,8 +309,9 @@ export function parseBankCsv(
     const hesapAdi = hesapNoRaw ? `${bankaAdiRaw} - ${hesapNoRaw}` : bankaAdiRaw;
     const kodu = hesapNoRaw ? hesapNoRaw.substring(0, 4).toUpperCase() : 'BNK';
 
+    // Use tmp- prefix for new banks (backend expects tmp-* IDs for new banks)
     parsed.push({
-      id: generateId(),
+      id: `tmp-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`,
       bankaAdi: bankaAdiRaw,
       kodu,
       hesapAdi,

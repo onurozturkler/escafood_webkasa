@@ -50,7 +50,20 @@ export async function apiRequest<T>(
       errorData,
       url,
     });
-    const error = new Error(errorData.message || errorData.error || `HTTP ${response.status}`);
+    
+    // Extract validation error details if available
+    let errorMessage = errorData.message || errorData.error || `HTTP ${response.status}`;
+    if (errorData.details && Array.isArray(errorData.details)) {
+      const validationErrors = errorData.details.map((issue: any) => {
+        const path = issue.path?.join('.') || 'unknown';
+        return `${path}: ${issue.message || 'Validation error'}`;
+      }).join(', ');
+      if (validationErrors) {
+        errorMessage = `Validation error: ${validationErrors}`;
+      }
+    }
+    
+    const error = new Error(errorMessage);
     (error as any).response = { status: response.status, data: errorData };
     throw error;
   }

@@ -3,6 +3,7 @@ import { BankMaster } from '../models/bank';
 import { Cheque } from '../models/cheque';
 import { CreditCard } from '../models/card';
 import { Supplier } from '../models/supplier';
+import { Loan } from '../models/loan';
 import { formatTl, formatTlPlain, parseTl } from '../utils/money';
 import { isoToDisplay, todayIso } from '../utils/date';
 import { apiGet, apiPost } from '../utils/api';
@@ -17,6 +18,7 @@ export type BankaNakitCikisTuru =
   | 'ORTAK_EFT_GIDEN'
   | 'CEK_ODEME'
   | 'KREDI_KARTI_ODEME'
+  | 'KREDI_ODEME'
   | 'TEDARIKCI_ODEME';
 
 export type FaturaMuhatap = 'ELEKTRIK' | 'SU' | 'DOGALGAZ' | 'INTERNET' | 'DIGER';
@@ -34,6 +36,8 @@ export interface BankaNakitCikisFormValues {
   kaydedenKullanici: string;
   cekId?: string | null;
   krediKartiId?: string | null;
+  loanId?: string | null; // Loan ID for loan payment
+  installmentId?: string | null; // Installment ID for loan payment
   supplierId?: string | null; // Supplier ID for linking transaction
 }
 
@@ -46,6 +50,7 @@ interface Props {
   cheques: Cheque[];
   creditCards: CreditCard[];
   suppliers: Supplier[];
+  loans: Loan[];
 }
 
 const turLabels: Record<BankaNakitCikisTuru, string> = {
@@ -57,6 +62,7 @@ const turLabels: Record<BankaNakitCikisTuru, string> = {
   ORTAK_EFT_GIDEN: 'Şirket Ortağı Şahsi Hesaba EFT/Havale',
   CEK_ODEME: 'Çek Ödemesi',
   KREDI_KARTI_ODEME: 'Kredi Kartı Ödemesi',
+  KREDI_ODEME: 'Kredi Ödemesi',
   TEDARIKCI_ODEME: 'Tedarikçi Ödemesi',
 };
 
@@ -77,6 +83,7 @@ export default function BankaNakitCikis({
   cheques,
   creditCards,
   suppliers,
+  loans,
 }: Props) {
   const safeBanks: BankMaster[] = Array.isArray(banks) ? banks : [];
   const safeCreditCards: CreditCard[] = Array.isArray(creditCards) ? creditCards : [];
@@ -94,6 +101,8 @@ export default function BankaNakitCikis({
   const [dirty, setDirty] = useState(false);
   const [selectedChequeId, setSelectedChequeId] = useState('');
   const [krediKartiId, setKrediKartiId] = useState('');
+  const [selectedLoanId, setSelectedLoanId] = useState('');
+  const [selectedInstallmentId, setSelectedInstallmentId] = useState('');
 
   const eligibleCheques = useMemo(
     () =>
@@ -141,6 +150,8 @@ export default function BankaNakitCikis({
       setDirty(false);
       setSelectedChequeId('');
       setKrediKartiId('');
+      setSelectedLoanId('');
+      setSelectedInstallmentId('');
     }
   }, [isOpen]);
 
@@ -151,6 +162,28 @@ export default function BankaNakitCikis({
   const faturaRequired = useMemo(() => islemTuru === 'FATURA_ODEME', [islemTuru]);
   const hedefRequired = useMemo(() => islemTuru === 'VIRMAN', [islemTuru]);
   const isCardPayment = islemTuru === 'KREDI_KARTI_ODEME';
+  const isLoanPayment = islemTuru === 'KREDI_ODEME';
+  
+  // Get loans for the selected bank
+  const eligibleLoans = useMemo(() => {
+    if (!isLoanPayment || !bankaId) return [];
+    return (loans || []).filter((loan) => loan.isActive && loan.bankId === bankaId && loan.installments && loan.installments.length > 0);
+  }, [isLoanPayment, bankaId, loans]);
+  
+  // Get next upcoming installment for selected loan
+  const selectedLoan = useMemo(() => {
+    if (!isLoanPayment || !selectedLoanId) return null;
+    return eligibleLoans.find((l) => l.id === selectedLoanId) || null;
+  }, [isLoanPayment, selectedLoanId, eligibleLoans]);
+  
+  const nextInstallment = useMemo(() => {
+    if (!selectedLoan || !selectedLoan.installments) return null;
+    const upcoming = selectedLoan.installments.filter(
+      (inst) => inst.status === 'BEKLENIYOR' || inst.status === 'GECIKMIS'
+    );
+    if (upcoming.length === 0) return null;
+    return [...upcoming].sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
+  }, [selectedLoan]);
 
   const handleClose = () => {
     if (dirty && !window.confirm('Kaydedilmemiş bilgiler var. Kapatmak istiyor musunuz?')) return;
@@ -169,6 +202,16 @@ export default function BankaNakitCikis({
       setTutarText(formatTlPlain(selectedCheque.tutar));
     }
     
+    if (isLoanPayment) {
+      if (!nextInstallment) {
+        alert('Ödenecek taksit bulunamadı.');
+        return;
+      }
+      tutar = nextInstallment.totalAmount;
+      setTutarText(formatTlPlain(nextInstallment.totalAmount));
+      setSelectedInstallmentId(nextInstallment.id);
+    }
+    
     if (isCardPayment) {
       if (!selectedCard) return;
       setBankaId(selectedCard.bankaId);
@@ -184,6 +227,10 @@ export default function BankaNakitCikis({
     if (faturaRequired && !faturaMuhatabi) return;
     if (hedefRequired && !hedefBankaId) return;
     if (isCardPayment && !krediKartiId) return;
+    if (isLoanPayment && (!selectedLoanId || !nextInstallment)) {
+      alert('Kredi ve taksit seçmelisiniz.');
+      return;
+    }
     if (islemTarihiIso > today) {
       alert('Gelecek tarihli işlem kaydedilemez.');
       return;
@@ -234,8 +281,26 @@ export default function BankaNakitCikis({
       kaydedenKullanici: currentUserEmail,
       cekId: islemTuru === 'CEK_ODEME' ? selectedChequeId : null,
       krediKartiId: isCardPayment ? krediKartiId : null,
+      loanId: isLoanPayment ? selectedLoanId : null,
+      installmentId: isLoanPayment ? selectedInstallmentId : null,
       supplierId: islemTuru === 'TEDARIKCI_ODEME' ? muhatapId : null,
     });
+    
+    // Reset form fields after successful save
+    setIslemTarihiIso(todayIso());
+    setBankaId('');
+    setHedefBankaId('');
+    setIslemTuru('VIRMAN');
+    setMuhatap('');
+    setMuhatapId('');
+    setFaturaMuhatabi('ELEKTRIK');
+    setAciklama('');
+    setTutarText('');
+    setDirty(false);
+    setSelectedChequeId('');
+    setKrediKartiId('');
+    setSelectedLoanId('');
+    setSelectedInstallmentId('');
   };
 
   if (!isOpen) return null;
@@ -304,7 +369,9 @@ export default function BankaNakitCikis({
                 setDirty(true);
                 setSelectedChequeId('');
                 setKrediKartiId('');
-                if (next !== 'CEK_ODEME') setTutarText('');
+                setSelectedLoanId('');
+                setSelectedInstallmentId('');
+                if (next !== 'CEK_ODEME' && next !== 'KREDI_ODEME') setTutarText('');
               }}
             >
               {Object.entries(turLabels).map(([value, label]) => (
@@ -375,7 +442,40 @@ export default function BankaNakitCikis({
               />
             </div>
           )}
-          {!isCardPayment && islemTuru !== 'CEK_ODEME' && islemTuru !== 'TEDARIKCI_ODEME' && (
+          {isLoanPayment && (
+            <>
+              <div className="space-y-2">
+                <label>Kredi <span className="text-rose-600">*</span></label>
+                <select
+                  className="w-full"
+                  value={selectedLoanId}
+                  onChange={(e) => {
+                    setSelectedLoanId(e.target.value);
+                    setSelectedInstallmentId('');
+                    setDirty(true);
+                  }}
+                >
+                  <option value="">Seçiniz</option>
+                  {eligibleLoans.map((loan) => (
+                    <option key={loan.id} value={loan.id}>
+                      {loan.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {nextInstallment && (
+                <div className="space-y-2">
+                  <label>Ödenecek Taksit</label>
+                  <div className="p-3 bg-slate-50 rounded border">
+                    <div className="text-sm text-slate-600">Taksit #{nextInstallment.installmentNumber}</div>
+                    <div className="text-sm text-slate-600">Vade: {isoToDisplay(nextInstallment.dueDate)}</div>
+                    <div className="font-semibold text-lg">Tutar: {formatTl(nextInstallment.totalAmount)}</div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+          {!isCardPayment && !isLoanPayment && islemTuru !== 'CEK_ODEME' && islemTuru !== 'TEDARIKCI_ODEME' && (
             <div className="space-y-2">
               <label>Muhatap{muhatapRequired ? <span className="text-rose-600"> *</span> : ''}</label>
               <input

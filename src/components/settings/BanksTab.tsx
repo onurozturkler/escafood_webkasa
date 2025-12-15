@@ -10,7 +10,7 @@ interface Props {
   onFlagChange: (bankId: string, field: keyof BankFlagMap[string], value: boolean) => void;
   onAdd: () => void;
   onDelete: (bank: BankMaster) => void;
-  onSave: (banks?: BankMaster[]) => void | Promise<void> | Promise<BankMaster[]>;
+  onSave: (banks?: BankMaster[]) => Promise<BankMaster[]>;
   onSetBanks: (banks: BankMaster[]) => void;
   onDirty: () => void;
 }
@@ -66,10 +66,24 @@ const BanksTab: React.FC<Props> = ({
       try {
         // Ensure parsed is an array before calling onSave
         if (!Array.isArray(parsed)) {
+          console.error('CSV upload - parsed is not an array:', parsed, typeof parsed);
           throw new Error('Parsed banks is not an array');
         }
+        
+        if (parsed.length === 0) {
+          console.warn('CSV upload - parsed array is empty');
+          alert('CSV dosyasında geçerli banka bulunamadı.');
+          return;
+        }
+        
         console.log('CSV upload - calling onSave with', parsed.length, 'banks');
-        console.log('CSV upload - parsed banks:', parsed);
+        console.log('CSV upload - parsed banks (first 3):', parsed.slice(0, 3));
+        console.log('CSV upload - parsed type:', typeof parsed, 'isArray:', Array.isArray(parsed));
+        
+        // Ensure onSave is a function
+        if (typeof onSave !== 'function') {
+          throw new Error('onSave is not a function');
+        }
         
         const result = await onSave(parsed);
         console.log('CSV upload - onSave result:', result);
