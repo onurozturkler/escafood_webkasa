@@ -5,6 +5,8 @@ export interface CreditCardDto {
   name: string;
   bankId: string | null;
   limit: number | null;
+  sonEkstreBorcu: number;
+  manualGuncelBorc: number | null;
   closingDay: number | null;
   dueDay: number | null;
   sonEkstreBorcu: number; // Last statement balance (from DB)
@@ -47,6 +49,8 @@ export interface CreateCreditCardDto {
   name: string;
   bankId?: string | null;
   limit?: number | null;
+  sonEkstreBorcu?: number;
+  manualGuncelBorc?: number | null;
   closingDay?: number | null;
   dueDay?: number | null;
   sonEkstreBorcu?: number;
@@ -58,11 +62,17 @@ export interface UpdateCreditCardDto {
   name?: string;
   bankId?: string | null;
   limit?: number | null;
+  sonEkstreBorcu?: number;
+  manualGuncelBorc?: number | null;
   closingDay?: number | null;
   dueDay?: number | null;
   sonEkstreBorcu?: number;
   manualGuncelBorc?: number | null;
   isActive?: boolean;
+}
+
+export interface BulkSaveCreditCardDto extends UpdateCreditCardDto {
+  id?: string;
 }
 
 export interface CreateExpenseDto {
@@ -130,4 +140,3 @@ export interface PaymentResponse {
     outgoing: number;
   };
 }
-
