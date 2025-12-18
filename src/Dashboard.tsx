@@ -1451,9 +1451,9 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
       outgoing: 0,
         bankDelta: values.brutTutar, // POS tahsilat: Bankaya brüt tutar eklenir
       bankId: values.bankaId,
-        displayIncoming: values.brutTutar, // BUG 5 FIX: Brut amount for display
-        displayOutgoing: null, // BUG 5 FIX: Must be null/0 for POS_TAHSILAT_BRUT validation
-      });
+      displayIncoming: values.brutTutar, // BUG 5 FIX: Brut amount for display
+      displayOutgoing: null, // BUG 5 FIX: Must be null/0 for POS_TAHSILAT_BRUT validation
+    });
 
       // Fix: POS commission transaction - outgoing=commissionAmount, bankDelta=-commissionAmount
       let komisyonResponse;
@@ -1554,7 +1554,6 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
     // NOTE: refreshAll() will fetch transactions from backend, which should include both brut and commission
     // The bankDelta mapping fix ensures negative values (commission) are preserved
     await refreshAll();
-    
     setOpenForm(null);
     } catch (error: any) {
       alert(`Hata: ${error.message || 'POS tahsilat kaydedilemedi'}`);
