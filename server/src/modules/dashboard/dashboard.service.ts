@@ -1,6 +1,7 @@
 import { prisma } from '../../config/prisma';
 import { DailyTransactionSource, LoanInstallmentStatus } from '@prisma/client';
 import { DashboardSummary, UpcomingPayment } from './dashboard.types';
+import { getTodayTurkeyDate } from '../../utils/timezone';
 
 export class DashboardService {
   /**
@@ -145,7 +146,8 @@ export class DashboardService {
 
     // 7. Calculate upcoming payments (single source of truth)
     const upcomingPayments: UpcomingPayment[] = [];
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+    // TIMEZONE FIX: Use Turkey timezone date (YYYY-MM-DD string, no timezone conversion needed for isoDate)
+    const today = getTodayTurkeyDate();
 
     // 7a. Credit cards with debt
     // FIX: Fetch all active cards first, then filter by debt amount in JavaScript
@@ -220,9 +222,8 @@ export class DashboardService {
     }
 
     // 7b. Cheques (BORC direction, not paid yet - ODENDI excluded)
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayStartIso = todayStart.toISOString().split('T')[0];
+    // TIMEZONE FIX: Use Turkey timezone date (YYYY-MM-DD string, no timezone conversion needed for isoDate)
+    const todayStartIso = getTodayTurkeyDate();
     
     const cheques = await prisma.cheque.findMany({
       where: {

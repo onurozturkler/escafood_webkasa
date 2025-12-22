@@ -1,16 +1,61 @@
 const weekdays = ['pazar', 'pazartesi', 'salı', 'çarşamba', 'perşembe', 'cuma', 'cumartesi'];
 
+/**
+ * TIMEZONE FIX: Get today's date in Turkey timezone as YYYY-MM-DD
+ * This ensures the date matches what users see in Turkey, not UTC
+ */
 export function todayIso(): string {
-  // TIMEZONE FIX: Use local date instead of UTC to avoid timezone issues
-  // When it's 01:40 in Turkey (UTC+3), UTC is still 22:40 of previous day
-  // This causes the system to show yesterday's date
   const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  // Use Intl.DateTimeFormat to get Turkey timezone date
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Istanbul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  return formatter.format(now);
 }
 
+/**
+ * TIMEZONE FIX: Format a Date or ISO string to Turkish date format (DD.MM.YYYY)
+ * Accepts both Date objects and ISO strings (UTC timestamps)
+ * Always displays in Europe/Istanbul timezone
+ */
+export function formatTRDate(date: Date | string): string {
+  const dateObj = typeof date === 'string' ? new Date(date) : date;
+  const formatter = new Intl.DateTimeFormat('tr-TR', {
+    timeZone: 'Europe/Istanbul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  return formatter.format(dateObj);
+}
+
+/**
+ * TIMEZONE FIX: Format a Date or ISO string to Turkish datetime format (DD.MM.YYYY HH:mm)
+ * Accepts both Date objects and ISO strings (UTC timestamps)
+ * Always displays in Europe/Istanbul timezone
+ */
+export function formatTRDateTime(date: Date | string): string {
+  const dateObj = typeof date === 'string' ? new Date(date) : date;
+  const formatter = new Intl.DateTimeFormat('tr-TR', {
+    timeZone: 'Europe/Istanbul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  return formatter.format(dateObj);
+}
+
+/**
+ * TIMEZONE FIX: Convert ISO date string (YYYY-MM-DD) to display format (DD.MM.YYYY)
+ * For date-only strings (no time), this is a simple format conversion
+ * For datetime strings, use formatTRDate() instead
+ */
 export function isoToDisplay(iso: string): string {
   const [y, m, d] = iso.split('-');
   if (!y || !m || !d) return iso;

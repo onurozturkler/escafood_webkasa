@@ -1,6 +1,10 @@
 import 'dotenv/config';
 import 'express-async-errors';
 
+// TIMEZONE FIX: Keep UTC for storage, convert only for display
+// DateTime fields are stored as UTC in DB (Prisma default)
+// Frontend will display them in Europe/Istanbul timezone
+
 import cors from 'cors';
 import express, { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';

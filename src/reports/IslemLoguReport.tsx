@@ -5,7 +5,7 @@ import {
   getTransactionTypeLabel,
 } from '../models/transaction';
 import { BankMaster } from '../models/bank';
-import { isoToDisplay, todayIso } from '../utils/date';
+import { isoToDisplay, todayIso, formatTRDateTime } from '../utils/date';
 import { formatTl } from '../utils/money';
 import { HomepageIcon } from '../components/HomepageIcon';
 import { printReport } from '../utils/pdfExport';
@@ -60,6 +60,14 @@ interface TransactionDto {
   updatedBy: string | null;
   deletedAt: string | null;
   deletedBy: string | null;
+  // Cheque information (populated when chequeId is present)
+  cheque?: {
+    id: string;
+    cekNo: string;
+    drawerName: string;
+    payeeName: string;
+    issuerBankName: string;
+  } | null;
 }
 
 interface TransactionListResponse {
@@ -69,7 +77,7 @@ interface TransactionListResponse {
   totalOutgoing: number;
 }
 
-function mapTransactionDtoToDailyTransaction(dto: TransactionDto): DailyTransaction {
+function mapTransactionDtoToDailyTransaction(dto: TransactionDto): DailyTransaction & { cheque?: TransactionDto['cheque'] } {
   return {
     id: dto.id,
     isoDate: dto.isoDate,
@@ -90,6 +98,7 @@ function mapTransactionDtoToDailyTransaction(dto: TransactionDto): DailyTransact
     createdAtIso: dto.createdAt,
     createdBy: dto.createdBy,
     createdByEmail: dto.createdByEmail,
+    cheque: dto.cheque || undefined,
   };
 }
 
@@ -110,9 +119,13 @@ function mapSourceGroup(tx: DailyTransaction): SourceGroup {
   }
 }
 
+// TIMEZONE FIX: Format time from UTC ISO string to Turkey timezone (HH:mm)
 function formatTime(iso?: string) {
   if (!iso) return '-';
-  return iso.slice(11, 16) || '-';
+  const fullDateTime = formatTRDateTime(iso);
+  // formatTRDateTime returns "DD.MM.YYYY HH:mm", extract "HH:mm"
+  const parts = fullDateTime.split(' ');
+  return parts.length > 1 ? parts[1] : '-';
 }
 
 export function IslemLoguReport({ banks, currentUserEmail, onBackToDashboard }: Props) {
@@ -408,6 +421,7 @@ export function IslemLoguReport({ banks, currentUserEmail, onBackToDashboard }: 
                 <th className="px-3 py-2 text-left">Kaynak</th>
                 <th className="px-3 py-2 text-left">Muhatap</th>
                 <th className="px-3 py-2 text-left">Açıklama</th>
+                <th className="px-3 py-2 text-left">Çek Bilgisi</th>
                 <th className="px-3 py-2 text-right">Nakit Giriş</th>
                 <th className="px-3 py-2 text-right">Nakit Çıkış</th>
                 <th className="px-3 py-2 text-right">Banka Giriş</th>
@@ -418,7 +432,7 @@ export function IslemLoguReport({ banks, currentUserEmail, onBackToDashboard }: 
             <tbody>
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="px-3 py-3 text-center text-slate-500">
+                  <td colSpan={12} className="px-3 py-3 text-center text-slate-500">
                     Kayıt bulunamadı.
                   </td>
                 </tr>
@@ -440,6 +454,11 @@ export function IslemLoguReport({ banks, currentUserEmail, onBackToDashboard }: 
                 if (creditCardName) {
                   sourceLabel = `${sourceLabel} - ${creditCardName}`;
                 }
+                // Show cheque information if available
+                const chequeInfo = (tx as any).cheque;
+                const chequeDisplay = chequeInfo
+                  ? `Çek No: ${chequeInfo.cekNo} | Düzenleyen: ${chequeInfo.drawerName} | Lehtar: ${chequeInfo.payeeName} | Banka: ${chequeInfo.issuerBankName}`
+                  : '-';
                 return (
                   <tr key={tx.id} className="border-t">
                     <td className="px-3 py-2">{isoToDisplay(tx.isoDate)}</td>
@@ -449,6 +468,21 @@ export function IslemLoguReport({ banks, currentUserEmail, onBackToDashboard }: 
                     <td className="px-3 py-2">{tx.counterparty}</td>
                     <td className="px-3 py-2 truncate max-w-[160px]" title={tx.description}>
                       {tx.description}
+                    </td>
+                    <td className="px-3 py-2 text-xs truncate max-w-[200px]" title={chequeDisplay}>
+                      {chequeInfo ? (
+                        <span className="text-slate-600">
+                          <span className="font-medium">Çek {chequeInfo.cekNo}</span>
+                          <br />
+                          <span className="text-slate-500">
+                            {chequeInfo.drawerName} → {chequeInfo.payeeName}
+                          </span>
+                          <br />
+                          <span className="text-slate-400">{chequeInfo.issuerBankName}</span>
+                        </span>
+                      ) : (
+                        '-'
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right text-emerald-700">{formatTl(giris || 0)}</td>
                     <td className="px-3 py-2 text-right text-rose-700">{formatTl(cikis || 0)}</td>

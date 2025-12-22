@@ -24,10 +24,11 @@ const statusLabels: Record<ChequeStatus, string> = {
   BANKADA_TAHSILDE: 'Bankada (Tahsilde)',
   ODEMEDE: 'Ödemede',
   TAHSIL_EDILDI: 'Tahsil Edildi',
+  ODENDI: 'Ödendi',
   KARSILIKSIZ: 'Karşılıksız',
 };
 
-const allStatuses: ChequeStatus[] = ['KASADA', 'BANKADA_TAHSILDE', 'ODEMEDE', 'TAHSIL_EDILDI', 'KARSILIKSIZ'];
+const allStatuses: ChequeStatus[] = ['KASADA', 'BANKADA_TAHSILDE', 'ODEMEDE', 'TAHSIL_EDILDI', 'ODENDI', 'KARSILIKSIZ'];
 
 function isOurCheque(cek: Cheque): boolean {
   // Use direction if available (preferred method)
@@ -71,7 +72,7 @@ export function CekSenetReport({ cheques, customers, suppliers, banks, onBackToD
         }
         if (quickFilter === 'OVERDUE') {
           const d = diffInDays(today, c.vadeTarihi);
-          if (!(d < 0) || c.status === 'TAHSIL_EDILDI') return false;
+          if (!(d < 0) || c.status === 'TAHSIL_EDILDI' || c.status === 'ODENDI') return false;
         }
         return true;
       })
@@ -252,7 +253,13 @@ export function CekSenetReport({ cheques, customers, suppliers, banks, onBackToD
               setFromVadeIso(today);
               const d = new Date(`${today}T00:00:00Z`);
               d.setUTCDate(d.getUTCDate() + 7);
-              setToVadeIso(d.toISOString().slice(0, 10));
+              // TIMEZONE FIX: Add 7 days to today in Turkey timezone
+              const todayDate = new Date(today + 'T00:00:00');
+              todayDate.setDate(todayDate.getDate() + 7);
+              const year = todayDate.getFullYear();
+              const month = String(todayDate.getMonth() + 1).padStart(2, '0');
+              const day = String(todayDate.getDate()).padStart(2, '0');
+              setToVadeIso(`${year}-${month}-${day}`);
             }}
           >
             Önümüzdeki 7 Gün

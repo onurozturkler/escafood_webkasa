@@ -112,6 +112,8 @@ export default function CekIslemleriModal({
   const [reportTedarikciId, setReportTedarikciId] = useState('');
   const [reportSortKey, setReportSortKey] = useState<ReportSortKey>('vadeTarihi');
   const [reportSortDir, setReportSortDir] = useState<'asc' | 'desc'>('asc');
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [previewTitle, setPreviewTitle] = useState('');
 
   useEffect(() => {
     if (isOpen) {
@@ -466,8 +468,15 @@ export default function CekIslemleriModal({
 
   const handleSaveYeni = async () => {
     const bank = banks.find((b) => b.id === yeniBankId && b.cekKarnesiVarMi);
-    // supplierId is optional - cheque can work with just free-text counterparty name
-    if (!bank || !yeniCekNo || !yeniTutar || yeniTutar <= 0 || !yeniVadeTarihi) return;
+    
+    // issuerBankName is automatically the selected bank's name (bankaAdi or hesapAdi)
+    const issuerBankName = bank ? (bank.bankaAdi || bank.hesapAdi) : '';
+    
+    // Validation: drawerName, issuerBankName are required
+    if (!bank || !yeniCekNo || !yeniDuzenleyen || !issuerBankName || !yeniTutar || yeniTutar <= 0 || !yeniVadeTarihi) {
+      alert('Lütfen tüm zorunlu alanları doldurun (Banka, Çek No, Düzenleyen, Tutar, Vade Tarihi).');
+      return;
+    }
     if (!yeniChequeDataUrl) {
       alert('Çek görseli eklenmeden bu işlem kaydedilemez.');
       return;
@@ -485,31 +494,43 @@ export default function CekIslemleriModal({
         direction: 'BORC';
         customerId: string | null;
         supplierId: string | null;
-        bankId: string | null;
+        issuerBankName: string;
+        depositBankId: string | null;
+        drawerName: string;
+        payeeName: string;
         description: string | null;
+        imageDataUrl: string | null;
+        depositBank?: {
+          id: string;
+          name: string;
+        } | null;
       }>('/api/cheques', {
         cekNo: yeniCekNo,
         amount: yeniTutar,
         entryDate: todayIso(),
         maturityDate: yeniVadeTarihi,
         direction: 'BORC',
+        drawerName: yeniDuzenleyen, // Zorunlu: Düzenleyen
+        payeeName: yeniLehtar || (yeniSupplierId ? suppliers.find((s) => s.id === yeniSupplierId)?.ad || '' : ''), // Lehtar
+        issuerBankName: issuerBankName, // Zorunlu: Çeki düzenleyen banka adı
+        depositBankId: null, // Kasaya girişte null (sadece tahsile ver işleminde set edilir)
         customerId: null,
         supplierId: yeniSupplierId && yeniSupplierId.trim() ? yeniSupplierId : null,
-        bankId: yeniBankId,
         description: yeniAciklama || null,
-        attachmentId: null, // TODO: Upload and get attachmentId
+        imageDataUrl: yeniChequeDataUrl, // MVP: Base64 data URL
       });
 
       // Map backend response to frontend format
       const newCheque: Cheque = {
         id: response.id,
         cekNo: response.cekNo,
-        bankaId: response.bankId || undefined,
+        bankaId: response.depositBankId || undefined,
         bankaAdi: bank.bankaAdi || bank.hesapAdi,
+        issuerBankName: response.issuerBankName, // Çeki düzenleyen banka adı
         tutar: response.amount,
         vadeTarihi: response.maturityDate,
-        duzenleyen: yeniDuzenleyen,
-        lehtar: yeniLehtar || supplier.ad,
+        duzenleyen: response.drawerName,
+        lehtar: response.payeeName,
         tedarikciId: response.supplierId || undefined,
         direction: 'BORC', // Our issued cheque
         status: mapToFrontendStatus(response.status as any, 'BORC'),
@@ -1043,7 +1064,6 @@ export default function CekIslemleriModal({
                       <tr key={c.id} className="border-t">
                         <td className="py-2 px-2">{c.cekNo}</td>
                         <td className="py-2 px-2">{cekBankasi}</td>
-                        <td className="py-2 px-2">{tahsileVerilenBanka}</td>
                         <td className="py-2 px-2">{duzenleyen}</td>
                         <td className="py-2 px-2">{lehtar}</td>
                         <td className="py-2 px-2">{isoToDisplay(c.vadeTarihi)}</td>
@@ -1059,7 +1079,8 @@ export default function CekIslemleriModal({
                               onClick={() => {
                                 const imageUrl = c.imageDataUrl || c.imageUrl;
                                 if (imageUrl) {
-                                  window.open(imageUrl, '_blank');
+                                  setPreviewImageUrl(imageUrl);
+                                  setPreviewTitle(c.imageFileName || `Çek No: ${c.cekNo}`);
                                 }
                               }}
                             >
@@ -1123,6 +1144,26 @@ export default function CekIslemleriModal({
                     ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {/* Image Preview Modal */}
+        {previewImageUrl && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-lg max-w-3xl max-h-[90vh] p-4 flex flex-col">
+              <div className="flex justify-between items-center mb-2">
+                <h2 className="text-sm font-semibold">{previewTitle}</h2>
+                <button
+                  className="text-xs text-gray-500 hover:text-gray-800"
+                  onClick={() => setPreviewImageUrl(null)}
+                >
+                  Kapat
+                </button>
+              </div>
+              <div className="flex-1 overflow-auto">
+                <img src={previewImageUrl} alt={previewTitle} className="max-w-full h-auto mx-auto" />
+              </div>
             </div>
           </div>
         )}

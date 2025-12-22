@@ -4,7 +4,7 @@ import {
   getTransactionSourceLabel,
   getTransactionTypeLabel,
 } from '../models/transaction';
-import { isoToDisplay } from '../utils/date';
+import { isoToDisplay, todayIso } from '../utils/date';
 import { formatTl } from '../utils/money';
 import { HomepageIcon } from '../components/HomepageIcon';
 import { apiGet } from '../utils/api';
@@ -29,15 +29,6 @@ type SortKey = 'isoDate' | 'documentNo' | 'type' | 'counterparty' | 'incoming' |
 type SortDir = 'asc' | 'desc';
 
 type QuickRange = 'NONE' | 'TODAY' | 'WEEK' | 'MONTH' | 'YEAR';
-
-function todayIsoLocal() {
-  // TIMEZONE FIX: Use local date instead of UTC
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
 
 function getWeekRange(today: Date) {
   const day = today.getDay();
@@ -77,7 +68,7 @@ export default function KasaDefteriView({ onBackToDashboard }: KasaDefteriViewPr
   const [loading, setLoading] = useState(true);
   
   // RAPOR DEFAULT DAVRANIŞLARI - 6: Kasa Defteri → Bu Ay (ayın başı → bugün)
-  const today = todayIsoLocal();
+  const today = todayIso();
   const monthStart = (() => {
     const [y, m] = today.split('-');
     return `${y}-${m}-01`;
@@ -223,7 +214,7 @@ export default function KasaDefteriView({ onBackToDashboard }: KasaDefteriViewPr
   const applyQuickRange = (range: QuickRange) => {
     const today = new Date();
     if (range === 'TODAY') {
-      const iso = todayIsoLocal();
+      const iso = todayIso();
       setFilterStartIso(iso);
       setFilterEndIso(iso);
     } else if (range === 'WEEK') {

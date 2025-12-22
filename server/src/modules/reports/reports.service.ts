@@ -6,6 +6,7 @@ import {
   NakitAkisQuery,
   NakitAkisResponse,
 } from './reports.types';
+import { getTodayTurkeyDate } from '../../utils/timezone';
 
 export class ReportsService {
   /**
@@ -13,7 +14,8 @@ export class ReportsService {
    */
   async getKasaDefteri(query: KasaDefteriQuery): Promise<KasaDefteriResponse> {
     // Default to today if no date range provided
-    const today = new Date().toISOString().slice(0, 10);
+    // TIMEZONE FIX: Use Turkey timezone date (YYYY-MM-DD string, no timezone conversion needed for isoDate)
+    const today = getTodayTurkeyDate();
     const fromDate = query.from || today;
     const toDate = query.to || today;
 
@@ -170,11 +172,15 @@ export class ReportsService {
    */
   async getNakitAkis(query: NakitAkisQuery): Promise<NakitAkisResponse> {
     // Default to current month if no date range provided
-    const today = new Date().toISOString().slice(0, 10);
-    const year = new Date().getUTCFullYear();
-    const month = new Date().getUTCMonth();
-    const firstOfMonth = new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10);
-    const lastOfMonth = new Date(Date.UTC(year, month + 1, 0)).toISOString().slice(0, 10);
+    // TIMEZONE FIX: Use Turkey timezone date (YYYY-MM-DD string, no timezone conversion needed for isoDate)
+    const today = getTodayTurkeyDate();
+    const now = new Date();
+    const turkeyDate = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Istanbul' }));
+    const year = turkeyDate.getFullYear();
+    const month = turkeyDate.getMonth();
+    const firstOfMonth = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    const lastOfMonth = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
     
     const fromDate = query.from || firstOfMonth;
     const toDate = query.to || lastOfMonth;

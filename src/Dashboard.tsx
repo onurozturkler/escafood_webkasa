@@ -11,7 +11,7 @@ import { Cheque } from './models/cheque';
 import { DailyTransaction, DailyTransactionSource, DailyTransactionType } from './models/transaction';
 import { UpcomingPayment } from './models/upcomingPayment';
 import { DashboardSummary } from './models/dashboard';
-import { isoToDisplay, todayIso, getWeekdayTr, diffInDays } from './utils/date';
+import { isoToDisplay, todayIso, getWeekdayTr, diffInDays, formatTRDate, formatTRDateTime } from './utils/date';
 import { formatTl } from './utils/money';
 import { getNextBelgeNo } from './utils/documentNo';
 import { generateId } from './utils/id';
@@ -2240,6 +2240,9 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
     // CRITICAL: Refresh from backend to ensure single source of truth
     // This ensures upcoming payments, dropdown, and reports all see the same data
     try {
+      const today = todayIso();
+      const hasTransactionToday = payload.transaction && payload.transaction.isoDate === today;
+      
       // Backend returns ChequeListResponse with items array
       const response = await apiGet<{ items: any[]; totalCount: number }>('/api/cheques');
       // Map backend DTO to frontend Cheque format
@@ -2265,6 +2268,45 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         imageDataUrl: c.imageDataUrl || undefined,
       }));
       setCheques(mappedCheques);
+      
+      // CRITICAL FIX: If transaction is from today, refresh today's transactions from backend
+      // This ensures gün içi işlemler shows the cheque transaction and bank balance is updated
+      if (hasTransactionToday) {
+        try {
+          const txResponse = await apiGet<{ items: any[]; totalCount: number }>(
+            `/api/transactions?from=${today}&to=${today}&sortKey=isoDate&sortDir=asc`
+          );
+          const mapped = txResponse.items.map((tx) => ({
+            id: tx.id,
+            isoDate: tx.isoDate,
+            displayDate: isoToDisplay(tx.isoDate),
+            documentNo: tx.documentNo || '',
+            type: tx.type,
+            source: tx.source,
+            counterparty: tx.counterparty || '',
+            description: tx.description || '',
+            incoming: Number(tx.incoming) ?? 0,
+            outgoing: Number(tx.outgoing) ?? 0,
+            balanceAfter: Number(tx.balanceAfter) ?? 0,
+            bankId: tx.bankId || undefined,
+            bankDelta: tx.bankDelta !== undefined && tx.bankDelta !== null ? Number(tx.bankDelta) : undefined,
+            displayIncoming: tx.displayIncoming || undefined,
+            displayOutgoing: tx.displayOutgoing || undefined,
+            createdAtIso: tx.createdAt,
+            createdBy: tx.createdBy,
+          }));
+          
+          const sorted = [...mapped].sort((a, b) => {
+            const aCreated = a.createdAtIso || a.isoDate + 'T00:00:00';
+            const bCreated = b.createdAtIso || b.isoDate + 'T00:00:00';
+            return aCreated.localeCompare(bCreated);
+          });
+          setDailyTransactions(sorted);
+        } catch (error) {
+          console.error('Failed to refresh today\'s transactions after cheque operation:', error);
+        }
+      }
+      
       // Also refresh summary to update upcoming payments (single source of truth)
       await loadDashboardSummary();
     } catch (error) {

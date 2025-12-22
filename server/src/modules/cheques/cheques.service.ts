@@ -457,7 +457,8 @@ export class ChequesService {
       if (cheque.direction === 'ALACAK') {
         // Customer cheque collected
         const amount = Number(cheque.amount);
-        const counterparty = cheque.customer?.name || null;
+        // CRITICAL: Muhatap = çeki düzenleyen (drawerName)
+        const counterparty = cheque.drawerName || cheque.customer?.name || null;
         const description = data.description || `Çek No: ${cheque.cekNo}`;
 
         if (data.depositBankId) {
@@ -502,7 +503,8 @@ export class ChequesService {
       } else {
         // BORC cheque paid
         const amount = Number(cheque.amount);
-        const counterparty = cheque.supplier?.name || null;
+        // CRITICAL: Muhatap = çeki düzenleyen (drawerName)
+        const counterparty = cheque.drawerName || cheque.supplier?.name || null;
         const description = data.description || `Çek No: ${cheque.cekNo}`;
 
         if (data.depositBankId) {
@@ -548,7 +550,8 @@ export class ChequesService {
     } else if (data.newStatus === 'KARSILIKSIZ') {
       // Optional info-only row for bounced cheque
       const amount = Number(cheque.amount);
-      const counterparty = (cheque.direction === 'ALACAK' ? cheque.customer?.name : cheque.supplier?.name) || null;
+      // CRITICAL: Muhatap = çeki düzenleyen (drawerName)
+      const counterparty = cheque.drawerName || (cheque.direction === 'ALACAK' ? cheque.customer?.name : cheque.supplier?.name) || null;
       const description = data.description || `Çek No: ${cheque.cekNo} - Karşılıksız`;
 
       transactionId = await createChequeTransaction(

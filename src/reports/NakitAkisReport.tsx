@@ -19,12 +19,13 @@ interface Props {
 
 type Scope = 'HEPSI' | 'NAKIT' | 'BANKA';
 
+// TIMEZONE FIX: Get month range in Turkey timezone
 function getMonthRange() {
-  const today = new Date(`${todayIso()}T00:00:00Z`);
-  const year = today.getUTCFullYear();
-  const month = today.getUTCMonth();
-  const first = new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10);
-  const last = new Date(Date.UTC(year, month + 1, 0)).toISOString().slice(0, 10);
+  const todayStr = todayIso();
+  const [year, month] = todayStr.split('-').map(Number);
+  const first = `${year}-${String(month).padStart(2, '0')}-01`;
+  const lastDay = new Date(year, month, 0).getDate();
+  const last = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
   return { first, last };
 }
 

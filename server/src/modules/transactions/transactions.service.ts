@@ -996,6 +996,17 @@ export class TransactionsService {
         skip,
         take: pageSize,
         orderBy,
+        include: {
+          cheque: {
+            select: {
+              id: true,
+              cekNo: true,
+              drawerName: true,
+              payeeName: true,
+              issuerBankName: true,
+            },
+          },
+        },
       }),
       prisma.transaction.count({ where }),
     ]);
@@ -1080,6 +1091,16 @@ export class TransactionsService {
       updatedBy: transaction.updatedBy || null,
       deletedAt: transaction.deletedAt?.toISOString() || null,
       deletedBy: transaction.deletedBy || null,
+      // Include cheque information if available
+      cheque: transaction.cheque
+        ? {
+            id: transaction.cheque.id,
+            cekNo: transaction.cheque.cekNo,
+            drawerName: transaction.cheque.drawerName,
+            payeeName: transaction.cheque.payeeName,
+            issuerBankName: transaction.cheque.issuerBankName,
+          }
+        : null,
     };
   }
 }

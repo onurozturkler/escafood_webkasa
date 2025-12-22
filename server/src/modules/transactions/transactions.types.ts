@@ -31,6 +31,14 @@ export interface TransactionDto {
   updatedBy: string | null;
   deletedAt: string | null;
   deletedBy: string | null;
+  // Cheque information (populated when chequeId is present)
+  cheque?: {
+    id: string;
+    cekNo: string;
+    drawerName: string;
+    payeeName: string;
+    issuerBankName: string;
+  } | null;
 }
 
 export interface CreateTransactionDto {
