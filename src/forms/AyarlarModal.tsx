@@ -1,4 +1,5 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
+import Modal from '../components/ui/Modal';
 import { BankMaster } from '../models/bank';
 import { Customer } from '../models/customer';
 import { Supplier } from '../models/supplier';
@@ -1069,24 +1070,15 @@ const AyarlarModal: React.FC<Props> = ({
   );
 
   // ===== Render =====
-  if (!isOpen) return null;
-
   return (
-    <div className="modal-backdrop">
-      <div className="modal">
-        <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-200">
-          <h2 className="text-xl font-semibold text-slate-900 m-0">Ayarlar</h2>
-          <button
-            onClick={handleClose}
-            className="text-slate-500 hover:text-slate-700 text-2xl leading-none w-8 h-8 flex items-center justify-center rounded hover:bg-slate-100"
-            type="button"
-          >
-            ✕
-                  </button>
-      </div>
-
-        <div className="settings-modal">
-          <div className="settings-tabs">
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      title="Ayarlar"
+      size="xl"
+    >
+      <div className="settings-modal">
+        <div className="settings-tabs">
             <button
               type="button"
               className={activeTab === 'BANKALAR' ? 'settings-tab-btn active' : 'settings-tab-btn'}
@@ -1213,8 +1205,7 @@ const AyarlarModal: React.FC<Props> = ({
             )}
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 };
 

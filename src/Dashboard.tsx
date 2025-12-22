@@ -2215,7 +2215,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
   const weekday = getWeekdayTr(today);
 
   return (
-    <div className="flex min-h-screen bg-slate-100">
+    <div className="flex min-h-screen bg-slate-100 overflow-x-hidden">
       <div
         className={`no-print fixed inset-y-0 left-0 w-72 bg-[#111827] text-white transform transition-transform duration-200 z-40 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
@@ -2347,28 +2347,53 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         </div>
       </div>
 
-      <div className="flex-1 lg:ml-72 min-h-screen">
-        <div className="no-print sticky top-0 z-30 bg-white border-b border-slate-200">
-          <div className="flex items-center justify-between px-4 py-3">
-            <div className="flex items-center space-x-4">
-              <button className="lg:hidden" onClick={() => setSidebarOpen(true)}>
+      <div className="flex-1 lg:ml-72 min-h-screen w-0 min-w-0 overflow-x-hidden">
+        <div className="no-print sticky top-0 z-30 bg-white border-b border-slate-200 overflow-x-hidden">
+          <div className="flex flex-nowrap items-center justify-between px-3 sm:px-4 py-2 sm:py-3 gap-2 min-w-0">
+            {/* Sol blok: Hamburger + Esca Logo */}
+            <div className="flex items-center gap-1 sm:gap-2 lg:gap-3 flex-shrink-0 min-w-0">
+              <button className="lg:hidden flex-shrink-0 text-3xl px-1 sm:px-2" onClick={() => setSidebarOpen(true)}>
                 ☰
               </button>
               <img
                 src="https://esca-food.com/image/cache/catalog/esca%20food%20logosu%20tek_-700x800.png"
                 alt="Esca Food"
-                className="h-[168px] object-contain"
+                className="h-28 sm:h-8 md:h-12 lg:h-[168px] w-auto object-contain flex-shrink-0"
               />
+              {activeView !== 'DASHBOARD' && (
+                <a
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    handleBackToDashboard();
+                  }}
+                  className="inline-flex flex-col items-center gap-0.5 sm:gap-1 text-slate-700 hover:text-slate-900 hover:underline cursor-pointer flex-shrink-0"
+                  aria-label="Ana sayfaya dön"
+                >
+                  <img
+                    src="https://esca-food.com/image/cache/catalog/f5342283-469e-4d51-b720-9cb77ddfd0ac-700x800.png"
+                    alt=""
+                    className="h-6 w-6 sm:h-8 sm:w-8 md:h-12 md:w-12 lg:h-[120px] lg:w-[120px] object-contain"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                  <span className="text-[10px] sm:text-xs lg:text-sm whitespace-nowrap hidden sm:inline">Anasayfa</span>
+                </a>
+              )}
             </div>
-            <div className="flex items-center space-x-3 text-sm text-slate-600">
+            {/* Sağ blok: Web Kasa Logo + Email + Çıkış Butonu */}
+            <div className="flex items-center gap-1 sm:gap-2 lg:gap-3 flex-1 min-w-0 justify-end">
               <img
                 src="https://esca-food.com/image/cache/catalog/web%20kasa%20logosu%20tek_-700x800.png"
                 alt="Web Kasa"
-                className="h-[120px] object-contain"
+                className="h-20 sm:h-6 md:h-8 lg:h-[120px] w-auto object-contain flex-shrink-0"
               />
-              <span>{currentUser.email}</span>
+              <span className="truncate text-xs sm:text-sm text-slate-600 min-w-0 max-w-[100px] sm:max-w-[160px] md:max-w-none">
+                {currentUser.email}
+              </span>
               <button
-                className="px-3 py-1 border border-slate-300 rounded-lg hover:bg-slate-100"
+                className="px-2 sm:px-3 py-1 border border-slate-300 rounded-lg hover:bg-slate-100 text-xs sm:text-sm whitespace-nowrap flex-shrink-0"
                 onClick={onLogout}
               >
                 Çıkış
@@ -2379,11 +2404,11 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
 
         {activeView === 'DASHBOARD' && (
           <div className="p-4 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               <div className="card p-4">
-                <div className="text-sm font-semibold text-slate-600">Bankalar Toplamı</div>
-                <div className="text-3xl font-bold mt-2">{formatTl(totalBanksBalance)}</div>
-                <div className="mt-3 max-h-52 overflow-auto divide-y">
+                <div className="text-sm font-semibold text-slate-600 truncate">Bankalar Toplamı</div>
+                <div className="text-2xl sm:text-3xl font-bold mt-2 break-keep">{formatTl(totalBanksBalance)}</div>
+                <div className="mt-3 max-h-52 overflow-y-auto divide-y -mx-4 px-4">
                   {banks.filter((b) => b.aktifMi).length === 0 && (
                     <div className="py-2 text-sm text-slate-500">Tanımlı banka hesabı yok.</div>
                   )}
@@ -2398,33 +2423,78 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
                         : calculatedBalance;
                       
                       return (
-                        <div key={b.id} className="flex justify-between py-2 text-sm">
-                          <span>{b.hesapAdi}</span>
-                          <span className="font-semibold">{formatTl(displayBalance)}</span>
+                        <div key={b.id} className="flex justify-between py-2 text-sm gap-2">
+                          <span className="truncate flex-1 min-w-0">{b.hesapAdi}</span>
+                          <span className="font-semibold flex-shrink-0">{formatTl(displayBalance)}</span>
                         </div>
                       );
                     })}
                 </div>
               </div>
               <div className="card p-4">
-                <div className="text-sm font-semibold text-slate-600">Ana Kasa Bakiyesi</div>
-                <div className="text-3xl font-bold mt-2">{formatTl(cashBalance)}</div>
+                <div className="text-sm font-semibold text-slate-600 truncate">Ana Kasa Bakiyesi</div>
+                <div className="text-2xl sm:text-3xl font-bold mt-2 break-keep">{formatTl(cashBalance)}</div>
               </div>
               <div className="card p-4">
-                <div className="text-sm font-semibold text-slate-600">Kasadaki Çekler</div>
-                <div className="mt-2 text-lg font-semibold">{chequesInCash.length} Adet</div>
-                <div className="text-2xl font-bold">{formatTl(chequesTotal)}</div>
+                <div className="text-sm font-semibold text-slate-600 truncate">Kasadaki Çekler</div>
+                <div className="mt-2 text-base sm:text-lg font-semibold">{chequesInCash.length} Adet</div>
+                <div className="text-xl sm:text-2xl font-bold break-keep">{formatTl(chequesTotal)}</div>
               </div>
             </div>
 
             <div className="card p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-lg font-semibold">Yaklaşan Ödemeler</div>
+                  <div className="text-base sm:text-lg font-semibold">Yaklaşan Ödemeler</div>
                   <div className="text-xs text-slate-500">Kredi kartı, kredi ve çek vadesi yaklaşan ödemeler</div>
                 </div>
               </div>
-              <div className="mt-3 overflow-auto">
+              {upcomingPayments.length === 0 && (
+                <div className="py-3 text-center text-slate-500 text-sm mt-3">
+                  Kayıt yok.
+                </div>
+              )}
+              {/* Mobile: Card List */}
+              <div className="mt-3 space-y-2 sm:hidden">
+                {upcomingPayments.map((p) => {
+                  let color = 'text-slate-700';
+                  if (p.daysLeft < 0) color = 'text-rose-600 font-semibold';
+                  else if (p.daysLeft <= globalSettings.yaklasanOdemeGun) color = 'text-amber-600 font-semibold';
+                  return (
+                    <div key={p.id} className="border border-slate-200 rounded-lg p-3 space-y-1">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-sm truncate">{p.name}</div>
+                          {p.installmentId && (
+                            <div className="text-[10px] text-slate-400">{p.installmentId.slice(0, 8)}</div>
+                          )}
+                        </div>
+                        <div className={`text-sm font-semibold ml-2 ${color}`}>{p.daysLeft} gün</div>
+                      </div>
+                      <div className="text-xs text-slate-600 space-y-0.5">
+                        <div className="flex justify-between">
+                          <span>Tür:</span>
+                          <span className="font-medium">{p.category}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Banka:</span>
+                          <span className="font-medium truncate ml-2">{p.bankName}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Vade:</span>
+                          <span className="font-medium">{p.dueDateDisplay}</span>
+                        </div>
+                        <div className="flex justify-between pt-1 border-t border-slate-100">
+                          <span className="font-semibold">Tutar:</span>
+                          <span className="font-bold text-emerald-600">{formatTl(p.amount)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Desktop: Table */}
+              <div className="mt-3 hidden sm:block">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 text-[11px] uppercase text-slate-500">
                     <tr>
@@ -2437,13 +2507,6 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
                     </tr>
                   </thead>
                   <tbody>
-                    {upcomingPayments.length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="py-3 text-center text-slate-500">
-                          Kayıt yok.
-                        </td>
-                      </tr>
-                    )}
                     {upcomingPayments.map((p) => {
                       let color = 'text-slate-700';
                       if (p.daysLeft < 0) color = 'text-rose-600 font-semibold';
@@ -2470,22 +2533,22 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
             </div>
 
             <div className="card p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-lg font-semibold">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 mb-2">
+                <div className="text-base sm:text-lg font-semibold">
                   Gün İçi İşlemler
                   {/* TARİH / SAAT SÖZLEŞMESİ - 5.3: Liste hangi transactionDate'i gösteriyorsa başlık da onu gösterir */}
                   {displayedDate && (
-                    <span className="ml-2 text-sm font-normal text-slate-500">
+                    <span className="ml-2 text-xs sm:text-sm font-normal text-slate-500">
                       ({isoToDisplay(displayedDate)} - {getWeekdayTr(displayedDate)})
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
                   {/* FINANCIAL INVARIANT: Balance context selector */}
                   <div className="flex items-center gap-2">
-                    <label className="text-xs text-slate-600">Bakiye Türü:</label>
+                    <label className="text-xs text-slate-600 whitespace-nowrap">Bakiye Türü:</label>
                     <select
-                      className="text-xs border border-slate-300 rounded px-2 py-1"
+                      className="text-xs border border-slate-300 rounded px-2 py-1 flex-1 sm:flex-none"
                       value={balanceContext.type === 'BANKA' ? `BANKA_${balanceContext.bankId}` : balanceContext.type}
                       onChange={(e) => {
                         const value = e.target.value;
@@ -2511,13 +2574,94 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
                       ))}
                     </select>
                   </div>
-                  <div className="text-sm text-slate-600 flex items-center space-x-2">
+                  <div className="text-xs sm:text-sm text-slate-600 flex items-center space-x-2">
                     <span>{todayDisplay}</span>
                     <span className="text-orange-500 capitalize">{weekday}</span>
                   </div>
                 </div>
               </div>
-              <div className="overflow-auto">
+              {todaysTransactions.length === 0 && (
+                <div className="py-3 text-center text-slate-500 text-sm mt-3">
+                  Gün içi işlem yok.
+                </div>
+              )}
+              {/* Mobile: Card List */}
+              <div className="mt-3 space-y-3 sm:hidden">
+                {todaysTransactions.map((tx) => {
+                  // Fix Bug 6: Get bank name for bank transactions
+                  const bankName = tx.bankId ? banks.find((b) => b.id === tx.bankId)?.bankaAdi : null;
+                  // Fix Bug 6: Get credit card name for credit card transactions
+                  const creditCardName = (tx as any).creditCardId 
+                    ? creditCards.find((c) => c.id === (tx as any).creditCardId)?.kartAdi 
+                    : null;
+                  // Build source label with bank/card info
+                  let sourceLabel = tx.source;
+                  if (tx.source === 'BANKA' && bankName) {
+                    sourceLabel = `${tx.source} (${bankName})`;
+                  }
+                  if (creditCardName) {
+                    sourceLabel = creditCardName;
+                    if (bankName) {
+                      sourceLabel = `${creditCardName} - ${bankName}`;
+                    }
+                  }
+                  const { giris, cikis } = resolveDisplayAmounts(tx);
+                  return (
+                    <div key={tx.id} className="border border-slate-200 rounded-lg p-3 space-y-2">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-sm truncate">{tx.type}</div>
+                          <div className="text-xs text-slate-500">{tx.displayDate}</div>
+                        </div>
+                        <div className="ml-2 flex items-center gap-2">
+                          {giris !== null && giris > 0 && (
+                            <span className="text-xs sm:text-sm font-bold text-emerald-600">+{formatTl(giris)}</span>
+                          )}
+                          {cikis !== null && cikis > 0 && (
+                            <span className="text-xs sm:text-sm font-bold text-rose-600">-{formatTl(cikis)}</span>
+                          )}
+                          <button
+                            className="text-rose-600 hover:underline text-xs sm:text-sm px-2 py-1"
+                            onClick={() => removeTransaction(tx.id)}
+                          >
+                            Sil
+                          </button>
+                        </div>
+                      </div>
+                      <div className="text-xs text-slate-600 space-y-1">
+                        <div className="flex justify-between">
+                          <span>Belge No:</span>
+                          <span className="font-medium">{tx.documentNo || '-'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Kaynak:</span>
+                          <span className="font-medium truncate ml-2 text-right">{sourceLabel}</span>
+                        </div>
+                        {tx.counterparty && (
+                          <div className="flex justify-between">
+                            <span>Muhatap:</span>
+                            <span className="font-medium truncate ml-2 text-right">{tx.counterparty}</span>
+                          </div>
+                        )}
+                        {tx.description && (
+                          <div className="flex justify-between">
+                            <span>Açıklama:</span>
+                            <span className="font-medium truncate ml-2 text-right">{tx.description}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between pt-1 border-t border-slate-100">
+                          <span className="font-semibold">Bakiye:</span>
+                          <span className="font-bold">
+                            {formatTl(todaysBalanceMap.get(tx.id) ?? (balanceContext.type === 'KASA' ? cashBalance : 0))}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Desktop: Table */}
+              <div className="mt-3 hidden sm:block">
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 text-[11px] uppercase text-slate-500">
                     <tr>
@@ -2534,13 +2678,6 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
                     </tr>
                   </thead>
                   <tbody>
-                    {todaysTransactions.length === 0 && (
-                      <tr>
-                        <td colSpan={10} className="py-3 text-center text-slate-500">
-                          Gün içi işlem yok.
-                        </td>
-                      </tr>
-                    )}
                     {todaysTransactions.map((tx) => {
                       // Fix Bug 6: Get bank name for bank transactions
                       const bankName = tx.bankId ? banks.find((b) => b.id === tx.bankId)?.bankaAdi : null;

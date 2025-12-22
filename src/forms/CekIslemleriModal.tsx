@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import Modal from '../components/ui/Modal';
 import FormRow from '../components/FormRow';
 import DateInput from '../components/DateInput';
 import MoneyInput from '../components/MoneyInput';
@@ -525,35 +526,32 @@ export default function CekIslemleriModal({
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="modal-backdrop">
-      <div className="modal max-w-5xl">
-        <div className="flex items-center justify-between mb-4">
-          <div className="text-lg font-semibold">Çek İşlemleri</div>
-          <button onClick={handleClose}>✕</button>
-        </div>
-
-        <div className="flex space-x-2 mb-4 text-sm">
-          {[
-            { key: 'GIRIS', label: 'Kasaya Çek Girişi' },
-            { key: 'CIKIS', label: 'Kasadan Çek Çıkışı' },
-            { key: 'YENI', label: 'Yeni Düzenlenen Çek' },
-            { key: 'RAPOR', label: 'Tüm Çekler Raporu' },
-            { key: 'ODENMIS', label: 'Ödenmiş Çekler' },
-          ].map((tab) => (
-            <button
-              key={tab.key}
-              className={`px-3 py-2 rounded-lg border ${
-                activeTab === tab.key ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-700'
-              }`}
-              onClick={() => setActiveTab(tab.key as Props['initialTab'])}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      title="Çek İşlemleri"
+      size="xl"
+    >
+      <div className="flex gap-2 mb-4 text-sm overflow-x-auto pb-2 -mx-4 sm:-mx-6 px-4 sm:px-6" style={{ scrollbarWidth: 'thin', WebkitOverflowScrolling: 'touch' }}>
+        {[
+          { key: 'GIRIS', label: 'Kasaya Çek Girişi' },
+          { key: 'CIKIS', label: 'Kasadan Çek Çıkışı' },
+          { key: 'YENI', label: 'Yeni Düzenlenen Çek' },
+          { key: 'RAPOR', label: 'Tüm Çekler Raporu' },
+          { key: 'ODENMIS', label: 'Ödenmiş Çekler' },
+        ].map((tab) => (
+          <button
+            key={tab.key}
+            className={`px-3 py-2 rounded-lg border flex-shrink-0 ${
+              activeTab === tab.key ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-700 border-slate-300'
+            }`}
+            onClick={() => setActiveTab(tab.key as Props['initialTab'])}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
         {activeTab === 'GIRIS' && (
           <div className="space-y-4">
@@ -1128,7 +1126,6 @@ export default function CekIslemleriModal({
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }
