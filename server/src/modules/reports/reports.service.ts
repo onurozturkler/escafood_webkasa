@@ -106,6 +106,7 @@ export class ReportsService {
               name: true,
             },
           },
+          // NOTE: attachment relation not included - we only need attachmentId (already in transaction)
         },
       }),
       prisma.transaction.count({ where }),
@@ -157,6 +158,8 @@ export class ReportsService {
         bankDelta: tx.bankDelta !== null && tx.bankDelta !== undefined ? Number(tx.bankDelta) : null, // For bank transfer tracking
         creditCardId: tx.creditCardId,
         creditCardName: tx.creditCard?.name || null,
+        // Include attachment ID only (not base64 data to avoid bloating list responses)
+        attachmentId: tx.attachmentId || null,
       })),
       totalCount,
       totalIncoming,

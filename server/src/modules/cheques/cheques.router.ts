@@ -14,5 +14,6 @@ router.post('/', (req: Request, res: Response) => controller.create(req, res));
 router.put('/:id', (req: Request, res: Response) => controller.update(req, res));
 router.put('/:id/status', (req: Request, res: Response) => controller.updateStatus(req, res));
 router.post('/:id/pay', (req: Request, res: Response) => controller.payCheque(req, res));
+router.delete('/:id', (req: Request, res: Response) => controller.remove(req, res));
 
 export default router;

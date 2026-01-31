@@ -6,37 +6,47 @@
  * - from: Turkey 00:00:00 -> UTC
  * - to: Turkey 23:59:59.999 -> UTC
  * 
- * This handles DST (Daylight Saving Time) correctly using date-fns-tz.
+ * This handles DST (Daylight Saving Time) correctly using Intl.DateTimeFormat.
  */
-
-import { zonedTimeToUtc, toZonedTime } from 'date-fns-tz';
 
 const TURKEY_TIMEZONE = 'Europe/Istanbul';
 
 /**
  * Convert a Turkey local date (YYYY-MM-DD) to UTC start of day
  * Example: "2025-12-22" -> UTC timestamp for 2025-12-22 00:00:00 in Turkey
+ * 
+ * Turkey is UTC+3 (no DST since 2016), so:
+ * Turkey 00:00:00 = UTC 21:00:00 (previous day)
  */
 export function turkeyDateToUtcStart(dateStr: string): Date {
-  // Parse as Turkey local date at 00:00:00
-  const [year, month, day] = dateStr.split('-').map(Number);
-  const turkeyLocalDate = new Date(year, month - 1, day, 0, 0, 0, 0);
+  const parts = dateStr.split('-').map(Number);
+  const year = parts[0];
+  const month = parts[1] - 1; // JavaScript months are 0-indexed
+  const day = parts[2];
   
-  // Convert to UTC using timezone
-  return zonedTimeToUtc(turkeyLocalDate, TURKEY_TIMEZONE);
+  // Create UTC date for the target date at 00:00:00
+  // Then subtract 3 hours to get Turkey midnight in UTC
+  const utcDate = new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
+  return new Date(utcDate.getTime() - 3 * 60 * 60 * 1000); // Subtract 3 hours
 }
 
 /**
  * Convert a Turkey local date (YYYY-MM-DD) to UTC end of day
  * Example: "2025-12-22" -> UTC timestamp for 2025-12-22 23:59:59.999 in Turkey
+ * 
+ * Turkey is UTC+3 (no DST since 2016), so:
+ * Turkey 23:59:59.999 = UTC 20:59:59.999 (same day)
  */
 export function turkeyDateToUtcEnd(dateStr: string): Date {
-  // Parse as Turkey local date at 23:59:59.999
-  const [year, month, day] = dateStr.split('-').map(Number);
-  const turkeyLocalDate = new Date(year, month - 1, day, 23, 59, 59, 999);
+  const parts = dateStr.split('-').map(Number);
+  const year = parts[0];
+  const month = parts[1] - 1;
+  const day = parts[2];
   
-  // Convert to UTC using timezone
-  return zonedTimeToUtc(turkeyLocalDate, TURKEY_TIMEZONE);
+  // Create UTC date for the target date at 23:59:59.999
+  // Then subtract 3 hours to get Turkey end of day in UTC
+  const utcDate = new Date(Date.UTC(year, month, day, 23, 59, 59, 999));
+  return new Date(utcDate.getTime() - 3 * 60 * 60 * 1000); // Subtract 3 hours
 }
 
 /**

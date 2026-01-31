@@ -47,6 +47,7 @@
             <li>Kredi kartı ekstraları</li>
             <li>Müşteriler</li>
             <li>Tedarikçiler</li>
+            <li>POS terminalleri</li>
             <li>Kullanıcı oturum bilgisi</li>
         </ul>
     </div>
@@ -70,7 +71,8 @@
                     'esca-webkasa-bank-flags',
                     'esca-webkasa-card-extras',
                     'esca-webkasa-customers',
-                    'esca-webkasa-suppliers'
+                    'esca-webkasa-suppliers',
+                    'esca-webkasa-pos-terminals' // BUG 1 FIX: Include POS terminals in app data cleanup
                 ];
                 
                 let cleared = 0;
@@ -87,7 +89,12 @@
 
         function showResult(message, isSuccess) {
             const resultDiv = document.getElementById('result');
-            resultDiv.innerHTML = `<div class="${isSuccess ? 'success' : ''}">${message}</div>`;
+            // XSS FIX: Use textContent instead of innerHTML to prevent XSS attacks
+            resultDiv.innerHTML = ''; // Clear previous content
+            const messageDiv = document.createElement('div');
+            messageDiv.className = isSuccess ? 'success' : '';
+            messageDiv.textContent = message; // Safe: textContent escapes HTML
+            resultDiv.appendChild(messageDiv);
         }
 
         // Sayfa yüklendiğinde mevcut verileri göster
@@ -97,7 +104,8 @@
                 'esca-webkasa-card-extras',
                 'esca-webkasa-customers',
                 'esca-webkasa-suppliers',
-                'esca-webkasa-user'
+                'esca-webkasa-pos-terminals', // BUG 1 FIX: Include POS terminals in display
+                'esca-webkasa-token' // BUG 2 FIX: Use correct key for user session token
             ];
             
             let info = '<h3>Mevcut localStorage Verileri:</h3><ul>';

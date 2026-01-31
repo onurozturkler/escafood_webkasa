@@ -159,6 +159,8 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [openSection, setOpenSection] = useState<Record<string, boolean>>({});
   const [activeView, setActiveView] = useState<ActiveView>('DASHBOARD');
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [previewTitle, setPreviewTitle] = useState('');
 
   // Start with empty banks array - will be loaded from backend
   const [banks, setBanks] = useState<BankMaster[]>([]);
@@ -576,6 +578,9 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
             displayOutgoing: tx.displayOutgoing || undefined,
             createdAtIso: tx.createdAt,
             createdBy: tx.createdBy,
+            attachmentType: tx.attachmentType || undefined,
+            attachmentImageDataUrl: tx.attachmentImageDataUrl || undefined,
+            attachmentImageName: tx.attachmentImageName || undefined,
           }));
           
           const sorted = [...mapped].sort((a, b) => {
@@ -652,25 +657,41 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           `/api/transactions?from=${today}&to=${today}&sortKey=isoDate&sortDir=asc`
         );
         // Map backend response to frontend format
-        const mapped = response.items.map((tx) => ({
-          id: tx.id,
-          isoDate: tx.isoDate,
-          displayDate: isoToDisplay(tx.isoDate),
-          documentNo: tx.documentNo || '',
-          type: tx.type,
-          source: tx.source,
-          counterparty: tx.counterparty || '',
-          description: tx.description || '',
-          incoming: Number(tx.incoming) ?? 0, // BUG 4 FIX: Use ?? instead of || to preserve 0
-          outgoing: Number(tx.outgoing) ?? 0, // BUG 4 FIX: Use ?? instead of || to preserve 0
-          balanceAfter: Number(tx.balanceAfter) ?? 0, // BUG 4 FIX: Use balanceAfter from backend (calculated correctly)
-          bankId: tx.bankId || undefined,
-          bankDelta: tx.bankDelta || undefined,
-          displayIncoming: tx.displayIncoming || undefined,
-          displayOutgoing: tx.displayOutgoing || undefined,
-          createdAtIso: tx.createdAt,
-          createdBy: tx.createdBy,
-        }));
+        const mapped = response.items.map((tx) => {
+          // DEBUG: Log attachmentId from backend
+          if (tx.type === 'POS_TAHSILAT_BRUT' || tx.type === 'POS_KOMISYONU' || 
+              tx.type === 'KREDI_KARTI_HARCAMA' || tx.type === 'KREDI_KARTI_EKSTRE_ODEME' || 
+              tx.type === 'KREDI_KARTI_MASRAF' || tx.type === 'CEK_GIRISI' || 
+              tx.type === 'CEK_TAHSIL_BANKA' || tx.type === 'CEK_ODENMESI' || 
+              tx.type === 'CEK_KARSILIKSIZ') {
+            console.log('[Dashboard] Backend response - transaction:', {
+              id: tx.id,
+              type: tx.type,
+              attachmentId: tx.attachmentId,
+              attachmentIdType: typeof tx.attachmentId,
+            });
+          }
+          return {
+            id: tx.id,
+            isoDate: tx.isoDate,
+            displayDate: isoToDisplay(tx.isoDate),
+            documentNo: tx.documentNo || '',
+            type: tx.type,
+            source: tx.source,
+            counterparty: tx.counterparty || '',
+            description: tx.description || '',
+            incoming: Number(tx.incoming) ?? 0, // BUG 4 FIX: Use ?? instead of || to preserve 0
+            outgoing: Number(tx.outgoing) ?? 0, // BUG 4 FIX: Use ?? instead of || to preserve 0
+            balanceAfter: Number(tx.balanceAfter) ?? 0, // BUG 4 FIX: Use balanceAfter from backend (calculated correctly)
+            bankId: tx.bankId || undefined,
+            bankDelta: tx.bankDelta || undefined,
+            displayIncoming: tx.displayIncoming || undefined,
+            displayOutgoing: tx.displayOutgoing || undefined,
+            createdAtIso: tx.createdAt,
+            createdBy: tx.createdBy,
+            attachmentId: tx.attachmentId ?? undefined, // Use ?? to preserve null (null means no attachment, undefined means not set)
+          };
+        });
         
         // FIX: Sort by createdAtIso (creation time) to show transactions in the order they were created
         // This ensures that transactions appear in chronological order, not by type or documentNo
@@ -1704,6 +1725,9 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
                   displayOutgoing: tx.displayOutgoing || undefined,
                   createdAtIso: tx.createdAt,
                   createdBy: tx.createdBy,
+                  attachmentType: tx.attachmentType || undefined,
+                  attachmentImageDataUrl: tx.attachmentImageDataUrl || undefined,
+                  attachmentImageName: tx.attachmentImageName || undefined,
                 }));
                 
                 const sorted = [...mapped].sort((a, b) => {
@@ -1861,6 +1885,30 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
     const documentNo = getNextBelgeNo('BNK-GRS', values.islemTarihiIso, dailyTransactions);
     const counterparty = `${customer.kod} - ${customer.ad}`;
 
+      // Upload attachment first if slip image provided
+      let attachmentId: string | null = null;
+      if (values.slipImageDataUrl) {
+        try {
+          const attachmentResponse = await apiPost<{
+            id: string;
+            fileName: string;
+            mimeType: string;
+            imageDataUrl: string;
+            createdAt: string;
+            createdBy: string | null;
+          }>('/api/attachments', {
+            imageDataUrl: values.slipImageDataUrl,
+            fileName: values.slipImageName || null,
+            type: 'POS_SLIP',
+          });
+          attachmentId = attachmentResponse.id;
+        } catch (attachmentError: any) {
+          console.error('Failed to upload attachment:', attachmentError);
+          alert(`Slip görseli yüklenemedi: ${attachmentError?.message || 'Bilinmeyen hata'}`);
+          return;
+        }
+      }
+
       // Create POS tahsilat (brut) transaction
       const brutResponse = await apiPost<{
         id: string;
@@ -1891,7 +1939,13 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
       bankId: values.bankaId,
       displayIncoming: values.brutTutar, // BUG 5 FIX: Brut amount for display
       displayOutgoing: null, // BUG 5 FIX: Must be null/0 for POS_TAHSILAT_BRUT validation
+      attachmentId: attachmentId, // Use uploaded attachment ID
     });
+      console.log('[Dashboard] POS_TAHSILAT_BRUT transaction created:', {
+        id: brutResponse.id,
+        attachmentId: attachmentId,
+        documentNo: documentNo,
+      });
 
       // Fix: POS commission transaction - outgoing=commissionAmount, bankDelta=-commissionAmount
       let komisyonResponse;
@@ -1909,6 +1963,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
           bankId: values.bankaId,
           displayIncoming: null,
           displayOutgoing: values.komisyonTutar,
+          attachmentId: attachmentId, // Use same attachment ID as brut transaction
         };
         
         komisyonResponse = await apiPost<{
@@ -1928,6 +1983,11 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         createdAt: string;
         createdBy: string;
       }>('/api/transactions', komisyonPayload);
+        console.log('[Dashboard] POS_KOMISYONU transaction created:', {
+          id: komisyonResponse.id,
+          attachmentId: attachmentId,
+          documentNo: komisyonPayload.documentNo,
+        });
       
       } catch (komisyonError: any) {
         // Don't throw - continue with brut transaction only, but log the error
@@ -2294,6 +2354,9 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
             displayOutgoing: tx.displayOutgoing || undefined,
             createdAtIso: tx.createdAt,
             createdBy: tx.createdBy,
+            attachmentType: tx.attachmentType || undefined,
+            attachmentImageDataUrl: tx.attachmentImageDataUrl || undefined,
+            attachmentImageName: tx.attachmentImageName || undefined,
           }));
           
           const sorted = [...mapped].sort((a, b) => {
@@ -2344,6 +2407,9 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         bankDelta: tx.bankDelta || undefined,
         displayIncoming: tx.displayIncoming || undefined,
         displayOutgoing: tx.displayOutgoing || undefined,
+        attachmentType: tx.attachmentType || undefined,
+        attachmentImageDataUrl: tx.attachmentImageDataUrl || undefined,
+        attachmentImageName: tx.attachmentImageName || undefined,
         createdAtIso: tx.createdAt,
         createdBy: tx.createdBy,
       }));
@@ -2841,6 +2907,39 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
                             <span className="font-medium truncate ml-2 text-right">{tx.description}</span>
                           </div>
                         )}
+                        {tx.attachmentId != null && ( // != null checks for both null and undefined
+                          <div className="flex justify-between">
+                            <span>Belge:</span>
+                            <button
+                              className="text-xs text-blue-600 underline hover:text-blue-800 font-medium"
+                              onClick={async () => {
+                                if (!tx.attachmentId) return;
+                                try {
+                                  const attachment = await apiGet<{
+                                    id: string;
+                                    fileName: string;
+                                    mimeType: string;
+                                    imageDataUrl: string;
+                                    createdAt: string;
+                                    createdBy: string | null;
+                                  }>(`/api/attachments/${tx.attachmentId}`);
+                                  setPreviewImageUrl(attachment.imageDataUrl);
+                                  const isPosSlip = tx.type === 'POS_TAHSILAT_BRUT' || 
+                                                   tx.type === 'POS_KOMISYONU' ||
+                                                   tx.type === 'KREDI_KARTI_HARCAMA' ||
+                                                   tx.type === 'KREDI_KARTI_EKSTRE_ODEME' ||
+                                                   tx.type === 'KREDI_KARTI_MASRAF';
+                                  setPreviewTitle(attachment.fileName || (isPosSlip ? 'Slip' : 'Çek Görseli'));
+                                } catch (error: any) {
+                                  console.error('Failed to fetch attachment:', error);
+                                  alert(`Görsel yüklenemedi: ${error?.message || 'Bilinmeyen hata'}`);
+                                }
+                              }}
+                            >
+                              Görüntüle
+                            </button>
+                          </div>
+                        )}
                         <div className="flex justify-between pt-1 border-t border-slate-100">
                           <span className="font-semibold">Bakiye:</span>
                           <span className="font-bold">
@@ -2863,6 +2962,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
                       <th className="py-2 px-2 text-left">Kaynak</th>
                       <th className="py-2 px-2 text-left">Muhatap</th>
                       <th className="py-2 px-2 text-left">Açıklama</th>
+                      <th className="py-2 px-2 text-left">Belge</th>
                       <th className="py-2 px-2 text-right">Giriş</th>
                       <th className="py-2 px-2 text-right">Çıkış</th>
                       <th className="py-2 px-2 text-right">Bakiye</th>
@@ -2882,6 +2982,7 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
                       </td>
                       <td className="py-2 px-2">-</td>
                       <td className="py-2 px-2">Önceki günden devir</td>
+                      <td className="py-2 px-2">-</td>
                       <td className="py-2 px-2 text-right">-</td>
                       <td className="py-2 px-2 text-right">-</td>
                       <td className="py-2 px-2 text-right font-semibold">
@@ -2907,6 +3008,31 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
                           sourceLabel = `${creditCardName} - ${bankName}`;
                         }
                       }
+                      // DEBUG: Log row data at render time
+                      if (tx.type === 'POS_TAHSILAT_BRUT' || tx.type === 'POS_KOMISYONU' || 
+                          tx.type === 'KREDI_KARTI_HARCAMA' || tx.type === 'KREDI_KARTI_EKSTRE_ODEME' || 
+                          tx.type === 'KREDI_KARTI_MASRAF' || tx.type === 'CEK_GIRISI' || 
+                          tx.type === 'CEK_TAHSIL_BANKA' || tx.type === 'CEK_ODENMESI' || 
+                          tx.type === 'CEK_KARSILIKSIZ') {
+                        console.log('[Dashboard] Row render - transaction:', {
+                          id: tx.id,
+                          type: tx.type,
+                          attachmentId: tx.attachmentId,
+                          attachmentIdType: typeof tx.attachmentId,
+                          hasAttachment: !!tx.attachmentId,
+                        });
+                      }
+                      // Check for attachment - show "Görüntüle" if attachmentId exists (not null/undefined)
+                      const hasAttachment = tx.attachmentId != null; // != null checks for both null and undefined
+                      const isPosSlipType = tx.type === 'POS_TAHSILAT_BRUT' || 
+                                           tx.type === 'POS_KOMISYONU' ||
+                                           tx.type === 'KREDI_KARTI_HARCAMA' ||
+                                           tx.type === 'KREDI_KARTI_EKSTRE_ODEME' ||
+                                           tx.type === 'KREDI_KARTI_MASRAF';
+                      const isChequeType = tx.type === 'CEK_GIRISI' || 
+                                          tx.type === 'CEK_TAHSIL_BANKA' || 
+                                          tx.type === 'CEK_ODENMESI' || 
+                                          tx.type === 'CEK_KARSILIKSIZ';
                       return (
                       <tr key={tx.id} className="border-b last:border-0">
                         <td className="py-2 px-2">{tx.displayDate}</td>
@@ -2917,6 +3043,35 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
                         </td>
                         <td className="py-2 px-2">{tx.counterparty}</td>
                         <td className="py-2 px-2">{tx.description}</td>
+                        <td className="py-2 px-2">
+                          {hasAttachment ? (
+                            <button
+                              className="text-xs text-blue-600 underline hover:text-blue-800 font-medium"
+                              onClick={async () => {
+                                if (!tx.attachmentId) return;
+                                try {
+                                  const attachment = await apiGet<{
+                                    id: string;
+                                    fileName: string;
+                                    mimeType: string;
+                                    imageDataUrl: string;
+                                    createdAt: string;
+                                    createdBy: string | null;
+                                  }>(`/api/attachments/${tx.attachmentId}`);
+                                  setPreviewImageUrl(attachment.imageDataUrl);
+                                  setPreviewTitle(attachment.fileName || (isPosSlipType ? 'Slip' : 'Çek Görseli'));
+                                } catch (error: any) {
+                                  console.error('Failed to fetch attachment:', error);
+                                  alert(`Görsel yüklenemedi: ${error?.message || 'Bilinmeyen hata'}`);
+                                }
+                              }}
+                            >
+                              Görüntüle
+                            </button>
+                          ) : (
+                            '-'
+                          )}
+                        </td>
                         <td className="py-2 px-2 text-right text-emerald-600">
                           {(() => {
                             const { giris } = resolveDisplayAmounts(tx);
@@ -3193,6 +3348,26 @@ export default function Dashboard({ currentUser, onLogout }: DashboardProps) {
         banks={banks}
         globalSettings={globalSettings}
       />
+
+      {/* Image Preview Modal */}
+      {previewImageUrl && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg max-w-3xl max-h-[90vh] p-4 flex flex-col">
+            <div className="flex justify-between items-center mb-2">
+              <h2 className="text-sm font-semibold">{previewTitle}</h2>
+              <button
+                className="text-xs text-gray-500 hover:text-gray-800"
+                onClick={() => setPreviewImageUrl(null)}
+              >
+                Kapat
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto">
+              <img src={previewImageUrl} alt={previewTitle} className="max-w-full h-auto mx-auto" />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

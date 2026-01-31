@@ -91,7 +91,5 @@ export interface DailyTransaction {
   createdAtIso?: string;
   createdBy?: string; // KULLANICI / AUTH / AUDIT - 7.1: createdByUserId (ASLA gösterilmez)
   createdByEmail?: string; // KULLANICI / AUTH / AUDIT - 7.1: createdByEmail (UI'da email gösterilir)
-  attachmentType?: 'POS_SLIP' | 'CHEQUE';
-  attachmentImageDataUrl?: string;
-  attachmentImageName?: string;
+  attachmentId?: string | null; // Frontend should fetch via GET /api/attachments/:id when needed
 }

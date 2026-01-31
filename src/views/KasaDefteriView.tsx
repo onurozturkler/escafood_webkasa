@@ -157,25 +157,29 @@ export default function KasaDefteriView({ onBackToDashboard }: KasaDefteriViewPr
         }>(`/api/reports/kasa-defteri?${params.toString()}`);
 
         // Fix Bug 4 & 5: Map backend response to frontend format, include bank and credit card info
-        const mapped = response.items.map((tx: any) => ({
-          id: tx.id,
-          isoDate: tx.isoDate,
-          displayDate: isoToDisplay(tx.isoDate),
-          documentNo: tx.documentNo || '',
-          type: tx.type,
-          source: tx.source,
-          counterparty: tx.counterparty || '',
-          description: tx.description || '',
-          incoming: tx.incoming,
-          outgoing: tx.outgoing,
-          balanceAfter: tx.balanceAfter, // Use balanceAfter from backend
-          bankId: tx.bankId || undefined, // Fix Bug 4: Include bankId from backend
-          bankName: tx.bankName || undefined, // Fix Bug 5: Use bankName from backend
-          creditCardId: tx.creditCardId || undefined, // Fix Bug 5: Include creditCardId
-          bankDelta: tx.bankDelta !== null && tx.bankDelta !== undefined ? tx.bankDelta : undefined, // Include bankDelta for bank transfer tracking
-          displayIncoming: tx.displayIncoming ?? undefined, // BUG 2 FIX: Use displayIncoming from backend for bank cash in
-          displayOutgoing: tx.displayOutgoing ?? undefined, // BUG 2 FIX: Use displayOutgoing from backend for bank cash out
-        }));
+        const mapped = response.items.map((tx: any) => {
+          // Debug logging removed - attachmentId is sufficient
+          return {
+            id: tx.id,
+            isoDate: tx.isoDate,
+            displayDate: isoToDisplay(tx.isoDate),
+            documentNo: tx.documentNo || '',
+            type: tx.type,
+            source: tx.source,
+            counterparty: tx.counterparty || '',
+            description: tx.description || '',
+            incoming: tx.incoming,
+            outgoing: tx.outgoing,
+            balanceAfter: tx.balanceAfter, // Use balanceAfter from backend
+            bankId: tx.bankId || undefined, // Fix Bug 4: Include bankId from backend
+            bankName: tx.bankName || undefined, // Fix Bug 5: Use bankName from backend
+            creditCardId: tx.creditCardId || undefined, // Fix Bug 5: Include creditCardId
+            bankDelta: tx.bankDelta !== null && tx.bankDelta !== undefined ? tx.bankDelta : undefined, // Include bankDelta for bank transfer tracking
+            displayIncoming: tx.displayIncoming ?? undefined, // BUG 2 FIX: Use displayIncoming from backend for bank cash in
+            displayOutgoing: tx.displayOutgoing ?? undefined, // BUG 2 FIX: Use displayOutgoing from backend for bank cash out
+            attachmentId: tx.attachmentId ?? undefined, // Use ?? to preserve null
+          };
+        });
 
         setTransactions(mapped);
         setOpeningBalance(response.openingBalance);
@@ -407,15 +411,29 @@ export default function KasaDefteriView({ onBackToDashboard }: KasaDefteriViewPr
                     )}
                   </td>
                   <td className="py-2 px-2">
-                    {tx.attachmentType === 'POS_SLIP' && tx.attachmentImageDataUrl ? (
+                    {tx.attachmentId != null ? ( // != null checks for both null and undefined
                       <button
-                        className="text-xs text-blue-600 underline"
-                        onClick={() => {
-                          setPreviewImageUrl(tx.attachmentImageDataUrl || null);
-                          setPreviewTitle(tx.attachmentImageName || 'POS Slip');
+                        className="text-xs text-blue-600 underline hover:text-blue-800 font-medium"
+                        onClick={async () => {
+                          if (!tx.attachmentId) return;
+                          try {
+                            const attachment = await apiGet<{
+                              id: string;
+                              fileName: string;
+                              mimeType: string;
+                              imageDataUrl: string;
+                              createdAt: string;
+                              createdBy: string | null;
+                            }>(`/api/attachments/${tx.attachmentId}`);
+                            setPreviewImageUrl(attachment.imageDataUrl);
+                            setPreviewTitle(attachment.fileName || 'Belge');
+                          } catch (error: any) {
+                            console.error('Failed to fetch attachment:', error);
+                            alert(`Görsel yüklenemedi: ${error?.message || 'Bilinmeyen hata'}`);
+                          }
                         }}
                       >
-                        Slip
+                        Görüntüle
                       </button>
                     ) : (
                       '-'

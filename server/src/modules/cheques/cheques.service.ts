@@ -1121,5 +1121,32 @@ export class ChequesService {
       };
     });
   }
+
+  /**
+   * Delete a cheque (soft delete)
+   */
+  async deleteCheque(chequeId: string, deletedBy: string): Promise<void> {
+    // Check if cheque exists and is not already deleted
+    const cheque = await prisma.cheque.findUnique({
+      where: { id: chequeId },
+    });
+
+    if (!cheque) {
+      throw new Error('Çek bulunamadı');
+    }
+
+    if (cheque.deletedAt) {
+      throw new Error('Çek zaten silinmiş');
+    }
+
+    // Soft delete
+    await prisma.cheque.update({
+      where: { id: chequeId },
+      data: {
+        deletedAt: new Date(),
+        deletedBy: deletedBy,
+      },
+    });
+  }
 }
 

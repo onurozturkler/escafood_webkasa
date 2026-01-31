@@ -23,6 +23,7 @@ import suppliersRouter from './modules/suppliers';
 import posTerminalsRouter from './modules/pos-terminals';
 import adminRouter from './modules/admin/admin.router';
 import auditLogRouter from './modules/auditLog/auditLog.router';
+import attachmentsRouter from './modules/attachments/attachments.router';
 
 import { prisma } from './config/prisma';
 import { seedUsers } from './config/seedUsers';
@@ -54,6 +55,7 @@ app.use('/api/suppliers', suppliersRouter);
 app.use('/api/pos-terminals', posTerminalsRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/audit-logs', auditLogRouter);
+app.use('/api/attachments', attachmentsRouter);
 
 app.use((req: Request, res: Response) => {
   res.status(404).json({ message: `Route not found: ${req.method} ${req.path}` });

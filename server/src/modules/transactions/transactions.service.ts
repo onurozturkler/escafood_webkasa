@@ -202,8 +202,10 @@ export class TransactionsService {
     console.log('Balance after:', balanceAfter);
     console.log('Document No (auto-generated):', documentNo);
     console.log('Created by:', createdBy);
+    
     // Prepare Prisma data - ensure all FKs are either valid UUID strings or null
     // Data has already been validated by Zod, so we can trust the types
+    // NOTE: attachmentId must be uploaded via /api/attachments first
     const prismaData = {
       isoDate: data.isoDate,
       documentNo: documentNo, // BELGE NO (ZORUNLU): Always set (auto-generated if not provided)
@@ -224,7 +226,7 @@ export class TransactionsService {
       chequeId: data.chequeId ?? null,
       customerId: data.customerId ?? null,
       supplierId: data.supplierId ?? null,
-      attachmentId: data.attachmentId ?? null,
+      attachmentId: data.attachmentId ?? null, // Attachment must be uploaded via /api/attachments first
       loanInstallmentId: data.loanInstallmentId ?? null,
       createdBy, // KULLANICI / AUTH / AUDIT - 7.1: createdByUserId
       createdByEmail, // KULLANICI / AUTH / AUDIT - 7.1: createdByEmail (denormalized for performance)
@@ -237,6 +239,15 @@ export class TransactionsService {
         data: prismaData,
       });
 
+      // DEBUG: Log created transaction with attachmentId
+      console.log('[TransactionsService] Transaction created:', {
+        id: transaction.id,
+        type: transaction.type,
+        attachmentId: transaction.attachmentId,
+        documentNo: transaction.documentNo,
+        bankId: transaction.bankId,
+      });
+      
       // DEBUG: Log created POS transaction from DB
       if (transaction.type === 'POS_TAHSILAT_BRUT' || transaction.type === 'POS_KOMISYONU') {
         console.log('[POS DEBUG] Transaction created in DB:', {
@@ -245,6 +256,7 @@ export class TransactionsService {
           bankId: transaction.bankId,
           bankDelta: transaction.bankDelta?.toNumber(),
           documentNo: transaction.documentNo,
+          attachmentId: transaction.attachmentId,
         });
       }
 
@@ -1006,6 +1018,7 @@ export class TransactionsService {
               issuerBankName: true,
             },
           },
+          // NOTE: attachment relation not included - we only need attachmentId (already in transaction)
         },
       }),
       prisma.transaction.count({ where }),
@@ -1101,6 +1114,8 @@ export class TransactionsService {
             issuerBankName: transaction.cheque.issuerBankName,
           }
         : null,
+      // NOTE: attachmentId is already included above (line 1087)
+      // Frontend should fetch attachment via GET /api/attachments/:id when user clicks "Görüntüle"
     };
   }
 }

@@ -7,6 +7,7 @@ import { diffInDays, isoToDisplay, todayIso } from '../utils/date';
 import { formatTl } from '../utils/money';
 import { HomepageIcon } from '../components/HomepageIcon';
 import { printReport } from '../utils/pdfExport';
+import { apiDelete } from '../utils/api';
 
 export interface CekSenetReportProps {
   cheques: Cheque[];
@@ -57,6 +58,7 @@ export function CekSenetReport({ cheques, customers, suppliers, banks, onBackToD
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('NONE');
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [previewTitle, setPreviewTitle] = useState('');
+  const [deletingChequeId, setDeletingChequeId] = useState<string | null>(null);
 
   const normalizedCheques = useMemo(() => {
     return cheques.map((c) => ({ ...c, status: normalizeLegacyChequeStatus(c.status) }));
@@ -339,12 +341,13 @@ export function CekSenetReport({ cheques, customers, suppliers, banks, onBackToD
                 <th className="px-2 py-2 text-left">Konum</th>
                 <th className="px-2 py-2 text-left">Görsel</th>
                 <th className="px-2 py-2 text-left">Açıklama</th>
+                <th className="px-2 py-2 text-left">İşlemler</th>
               </tr>
             </thead>
             <tbody>
               {filteredCheques.length === 0 && (
                 <tr>
-                  <td colSpan={14} className="text-center text-slate-500 py-4">
+                  <td colSpan={15} className="text-center text-slate-500 py-4">
                     Kayıt bulunamadı.
                   </td>
                 </tr>
@@ -442,6 +445,28 @@ export function CekSenetReport({ cheques, customers, suppliers, banks, onBackToD
                     </td>
                     <td className="px-2 py-2 truncate" title={c.aciklama || ''}>
                       {c.aciklama || '-'}
+                    </td>
+                    <td className="px-2 py-2">
+                      <button
+                        className="text-xs text-rose-600 hover:text-rose-700 underline disabled:opacity-50 disabled:cursor-not-allowed"
+                        onClick={async () => {
+                          if (window.confirm(`Çek No: ${c.cekNo}\nTutar: ${formatTl(c.tutar)}\n\nBu çeki silmek istediğinize emin misiniz?`)) {
+                            try {
+                              setDeletingChequeId(c.id);
+                              await apiDelete(`/api/cheques/${c.id}`);
+                              // Refresh the page to reload cheques list
+                              window.location.reload();
+                            } catch (error: any) {
+                              alert(`Çek silinirken hata oluştu: ${error?.message || 'Bilinmeyen hata'}`);
+                            } finally {
+                              setDeletingChequeId(null);
+                            }
+                          }
+                        }}
+                        disabled={deletingChequeId === c.id}
+                      >
+                        {deletingChequeId === c.id ? 'Siliniyor...' : 'Sil'}
+                      </button>
                     </td>
                   </tr>
                 );

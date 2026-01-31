@@ -155,4 +155,15 @@ export class ChequesController {
       handleError(res, error);
     }
   }
+
+  async remove(req: Request, res: Response) {
+    try {
+      const params = chequeIdParamSchema.parse(req.params);
+      const deletedBy = getUserId(req);
+      await service.deleteCheque(params.id, deletedBy);
+      res.json({ ok: true, message: 'Çek silindi' });
+    } catch (error) {
+      handleError(res, error);
+    }
+  }
 }

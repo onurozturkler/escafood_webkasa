@@ -39,6 +39,10 @@ export interface TransactionDto {
     payeeName: string;
     issuerBankName: string;
   } | null;
+  // Attachment information (populated when attachmentId is present)
+  attachmentType?: 'POS_SLIP' | 'CHEQUE' | null;
+  attachmentImageDataUrl?: string | null;
+  attachmentImageName?: string | null;
 }
 
 export interface CreateTransactionDto {
@@ -60,7 +64,7 @@ export interface CreateTransactionDto {
   chequeId?: string | null;
   customerId?: string | null;
   supplierId?: string | null;
-  attachmentId?: string | null;
+  attachmentId?: string | null; // Attachment ID (upload via /api/attachments first)
   loanInstallmentId?: string | null;
 }
 

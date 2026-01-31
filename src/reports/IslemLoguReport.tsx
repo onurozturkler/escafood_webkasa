@@ -68,6 +68,8 @@ interface TransactionDto {
     payeeName: string;
     issuerBankName: string;
   } | null;
+  // Attachment ID (frontend should fetch via GET /api/attachments/:id when needed)
+  attachmentId?: string | null;
 }
 
 interface TransactionListResponse {
@@ -99,6 +101,7 @@ function mapTransactionDtoToDailyTransaction(dto: TransactionDto): DailyTransact
     createdBy: dto.createdBy,
     createdByEmail: dto.createdByEmail,
     cheque: dto.cheque || undefined,
+    attachmentId: dto.attachmentId ?? undefined, // Use ?? to preserve null
   };
 }
 
@@ -147,6 +150,8 @@ export function IslemLoguReport({ banks, currentUserEmail, onBackToDashboard }: 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [totalCount, setTotalCount] = useState(0);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [previewTitle, setPreviewTitle] = useState('');
 
   // Fetch transactions from backend
   useEffect(() => {
@@ -422,6 +427,7 @@ export function IslemLoguReport({ banks, currentUserEmail, onBackToDashboard }: 
                 <th className="px-3 py-2 text-left">Muhatap</th>
                 <th className="px-3 py-2 text-left">Açıklama</th>
                 <th className="px-3 py-2 text-left">Çek Bilgisi</th>
+                <th className="px-3 py-2 text-left">Belge</th>
                 <th className="px-3 py-2 text-right">Nakit Giriş</th>
                 <th className="px-3 py-2 text-right">Nakit Çıkış</th>
                 <th className="px-3 py-2 text-right">Banka Giriş</th>
@@ -432,7 +438,7 @@ export function IslemLoguReport({ banks, currentUserEmail, onBackToDashboard }: 
             <tbody>
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="px-3 py-3 text-center text-slate-500">
+                  <td colSpan={13} className="px-3 py-3 text-center text-slate-500">
                     Kayıt bulunamadı.
                   </td>
                 </tr>
@@ -484,6 +490,35 @@ export function IslemLoguReport({ banks, currentUserEmail, onBackToDashboard }: 
                         '-'
                       )}
                     </td>
+                    <td className="px-3 py-2">
+                      {tx.attachmentId != null ? ( // != null checks for both null and undefined
+                        <button
+                          className="text-xs text-blue-600 underline hover:text-blue-800 font-medium"
+                          onClick={async () => {
+                            if (!tx.attachmentId) return;
+                            try {
+                              const attachment = await apiGet<{
+                                id: string;
+                                fileName: string;
+                                mimeType: string;
+                                imageDataUrl: string;
+                                createdAt: string;
+                                createdBy: string | null;
+                              }>(`/api/attachments/${tx.attachmentId}`);
+                              setPreviewImageUrl(attachment.imageDataUrl);
+                              setPreviewTitle(attachment.fileName || 'Belge');
+                            } catch (error: any) {
+                              console.error('Failed to fetch attachment:', error);
+                              alert(`Görsel yüklenemedi: ${error?.message || 'Bilinmeyen hata'}`);
+                            }
+                          }}
+                        >
+                          Görüntüle
+                        </button>
+                      ) : (
+                        '-'
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right text-emerald-700">{formatTl(giris || 0)}</td>
                     <td className="px-3 py-2 text-right text-rose-700">{formatTl(cikis || 0)}</td>
                     <td className="px-3 py-2 text-right text-emerald-700">{formatTl(bankIn)}</td>
@@ -495,6 +530,26 @@ export function IslemLoguReport({ banks, currentUserEmail, onBackToDashboard }: 
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Image Preview Modal */}
+      {previewImageUrl && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg max-w-3xl max-h-[90vh] p-4 flex flex-col">
+            <div className="flex justify-between items-center mb-2">
+              <h2 className="text-sm font-semibold">{previewTitle}</h2>
+              <button
+                className="text-xs text-gray-500 hover:text-gray-800"
+                onClick={() => setPreviewImageUrl(null)}
+              >
+                Kapat
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto">
+              <img src={previewImageUrl} alt={previewTitle} className="max-w-full h-auto mx-auto" />
+            </div>
+          </div>
         </div>
       )}
     </div>
