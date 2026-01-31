@@ -1,9 +1,61 @@
 const weekdays = ['pazar', 'pazartesi', 'salı', 'çarşamba', 'perşembe', 'cuma', 'cumartesi'];
 
+/**
+ * TIMEZONE FIX: Get today's date in Turkey timezone as YYYY-MM-DD
+ * This ensures the date matches what users see in Turkey, not UTC
+ */
 export function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  // Use Intl.DateTimeFormat to get Turkey timezone date
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Istanbul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  return formatter.format(now);
 }
 
+/**
+ * TIMEZONE FIX: Format a Date or ISO string to Turkish date format (DD.MM.YYYY)
+ * Accepts both Date objects and ISO strings (UTC timestamps)
+ * Always displays in Europe/Istanbul timezone
+ */
+export function formatTRDate(date: Date | string): string {
+  const dateObj = typeof date === 'string' ? new Date(date) : date;
+  const formatter = new Intl.DateTimeFormat('tr-TR', {
+    timeZone: 'Europe/Istanbul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  return formatter.format(dateObj);
+}
+
+/**
+ * TIMEZONE FIX: Format a Date or ISO string to Turkish datetime format (DD.MM.YYYY HH:mm)
+ * Accepts both Date objects and ISO strings (UTC timestamps)
+ * Always displays in Europe/Istanbul timezone
+ */
+export function formatTRDateTime(date: Date | string): string {
+  const dateObj = typeof date === 'string' ? new Date(date) : date;
+  const formatter = new Intl.DateTimeFormat('tr-TR', {
+    timeZone: 'Europe/Istanbul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  return formatter.format(dateObj);
+}
+
+/**
+ * TIMEZONE FIX: Convert ISO date string (YYYY-MM-DD) to display format (DD.MM.YYYY)
+ * For date-only strings (no time), this is a simple format conversion
+ * For datetime strings, use formatTRDate() instead
+ */
 export function isoToDisplay(iso: string): string {
   const [y, m, d] = iso.split('-');
   if (!y || !m || !d) return iso;
@@ -18,14 +70,24 @@ export function displayToIso(display: string): string {
 }
 
 export function getWeekdayTr(iso: string): string {
-  const date = new Date(iso);
+  // TIMEZONE FIX: Parse ISO date as local date to avoid timezone issues
+  // "2025-12-22" should be treated as local date, not UTC
+  const [y, m, d] = iso.split('-').map(Number);
+  if (isNaN(y) || isNaN(m) || isNaN(d)) return '';
+  const date = new Date(y, m - 1, d); // Month is 0-indexed
   const day = date.getDay();
   return weekdays[day] || '';
 }
 
 export function diffInDays(fromIso: string, toIso: string): number {
-  const from = new Date(fromIso);
-  const to = new Date(toIso);
+  // TIMEZONE FIX: Parse ISO dates as local dates to avoid timezone issues
+  const parseLocalDate = (iso: string): Date => {
+    const [y, m, d] = iso.split('-').map(Number);
+    if (isNaN(y) || isNaN(m) || isNaN(d)) return new Date(iso); // Fallback to default parsing
+    return new Date(y, m - 1, d); // Month is 0-indexed
+  };
+  const from = parseLocalDate(fromIso);
+  const to = parseLocalDate(toIso);
   const diff = to.getTime() - from.getTime();
   return Math.round(diff / (1000 * 60 * 60 * 24));
 }

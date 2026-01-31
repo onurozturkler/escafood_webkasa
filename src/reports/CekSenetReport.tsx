@@ -6,6 +6,8 @@ import { BankMaster } from '../models/bank';
 import { diffInDays, isoToDisplay, todayIso } from '../utils/date';
 import { formatTl } from '../utils/money';
 import { HomepageIcon } from '../components/HomepageIcon';
+import { printReport } from '../utils/pdfExport';
+import { apiDelete } from '../utils/api';
 
 export interface CekSenetReportProps {
   cheques: Cheque[];
@@ -23,12 +25,18 @@ const statusLabels: Record<ChequeStatus, string> = {
   BANKADA_TAHSILDE: 'Bankada (Tahsilde)',
   ODEMEDE: 'Ödemede',
   TAHSIL_EDILDI: 'Tahsil Edildi',
+  ODENDI: 'Ödendi',
   KARSILIKSIZ: 'Karşılıksız',
 };
 
-const allStatuses: ChequeStatus[] = ['KASADA', 'BANKADA_TAHSILDE', 'ODEMEDE', 'TAHSIL_EDILDI', 'KARSILIKSIZ'];
+const allStatuses: ChequeStatus[] = ['KASADA', 'BANKADA_TAHSILDE', 'ODEMEDE', 'TAHSIL_EDILDI', 'ODENDI', 'KARSILIKSIZ'];
 
 function isOurCheque(cek: Cheque): boolean {
+  // Use direction if available (preferred method)
+  if (cek.direction === 'BORC') return true;
+  if (cek.direction === 'ALACAK') return false;
+  
+  // Fallback to legacy logic if direction not available
   if (typeof (cek as any).bizimCekimizMi === 'boolean') {
     return (cek as any).bizimCekimizMi;
   }
@@ -50,6 +58,7 @@ export function CekSenetReport({ cheques, customers, suppliers, banks, onBackToD
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('NONE');
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [previewTitle, setPreviewTitle] = useState('');
+  const [deletingChequeId, setDeletingChequeId] = useState<string | null>(null);
 
   const normalizedCheques = useMemo(() => {
     return cheques.map((c) => ({ ...c, status: normalizeLegacyChequeStatus(c.status) }));
@@ -65,7 +74,7 @@ export function CekSenetReport({ cheques, customers, suppliers, banks, onBackToD
         }
         if (quickFilter === 'OVERDUE') {
           const d = diffInDays(today, c.vadeTarihi);
-          if (!(d < 0) || c.status === 'TAHSIL_EDILDI') return false;
+          if (!(d < 0) || c.status === 'TAHSIL_EDILDI' || c.status === 'ODENDI') return false;
         }
         return true;
       })
@@ -83,7 +92,7 @@ export function CekSenetReport({ cheques, customers, suppliers, banks, onBackToD
       .filter((c) => {
         if (!search.trim()) return true;
         const term = search.toLowerCase();
-        const combined = `${c.cekNo} ${c.bankaAdi || ''} ${c.duzenleyen || ''} ${c.lehtar || ''} ${c.aciklama || ''}`.toLowerCase();
+        const combined = `${c.cekNo} ${c.issuerBankName || ''} ${c.bankaAdi || ''} ${c.duzenleyen || ''} ${c.lehtar || ''} ${c.aciklama || ''}`.toLowerCase();
         return combined.includes(term);
       })
       .sort((a, b) => a.vadeTarihi.localeCompare(b.vadeTarihi));
@@ -146,13 +155,19 @@ export function CekSenetReport({ cheques, customers, suppliers, banks, onBackToD
       <div className="flex items-center justify-between gap-3 mb-2">
         <h1 className="text-lg md:text-xl font-semibold text-slate-800">Çek/Senet Modülü</h1>
         {onBackToDashboard && (
-          <div className="no-print">
+          <div className="no-print flex items-center gap-2">
             <button
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 text-sm"
               onClick={onBackToDashboard}
             >
               <HomepageIcon className="w-4 h-4" />
               <span>Ana Sayfaya Dön</span>
+            </button>
+            <button
+              className="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-medium"
+              onClick={() => printReport()}
+            >
+              📄 PDF / Döküm Al
             </button>
           </div>
         )}
@@ -240,7 +255,13 @@ export function CekSenetReport({ cheques, customers, suppliers, banks, onBackToD
               setFromVadeIso(today);
               const d = new Date(`${today}T00:00:00Z`);
               d.setUTCDate(d.getUTCDate() + 7);
-              setToVadeIso(d.toISOString().slice(0, 10));
+              // TIMEZONE FIX: Add 7 days to today in Turkey timezone
+              const todayDate = new Date(today + 'T00:00:00');
+              todayDate.setDate(todayDate.getDate() + 7);
+              const year = todayDate.getFullYear();
+              const month = String(todayDate.getMonth() + 1).padStart(2, '0');
+              const day = String(todayDate.getDate()).padStart(2, '0');
+              setToVadeIso(`${year}-${month}-${day}`);
             }}
           >
             Önümüzdeki 7 Gün
@@ -310,7 +331,8 @@ export function CekSenetReport({ cheques, customers, suppliers, banks, onBackToD
                 <th className="px-2 py-2 text-left">Tür</th>
                 <th className="px-2 py-2 text-left">Vade Tarihi</th>
                 <th className="px-2 py-2 text-left">Gün Farkı</th>
-                <th className="px-2 py-2 text-left">Banka</th>
+                <th className="px-2 py-2 text-left">Çek Bankası</th>
+                <th className="px-2 py-2 text-left">Tahsile Verilen Banka</th>
                 <th className="px-2 py-2 text-left">Düzenleyen</th>
                 <th className="px-2 py-2 text-left">Lehtar</th>
                 <th className="px-2 py-2 text-left">Müşteri / Tedarikçi</th>
@@ -319,26 +341,45 @@ export function CekSenetReport({ cheques, customers, suppliers, banks, onBackToD
                 <th className="px-2 py-2 text-left">Konum</th>
                 <th className="px-2 py-2 text-left">Görsel</th>
                 <th className="px-2 py-2 text-left">Açıklama</th>
+                <th className="px-2 py-2 text-left">İşlemler</th>
               </tr>
             </thead>
             <tbody>
               {filteredCheques.length === 0 && (
                 <tr>
-                  <td colSpan={13} className="text-center text-slate-500 py-4">
+                  <td colSpan={15} className="text-center text-slate-500 py-4">
                     Kayıt bulunamadı.
                   </td>
                 </tr>
               )}
               {filteredCheques.map((c) => {
                 const daysLeft = diffInDays(today, c.vadeTarihi);
-                const bankName = c.bankaAdi || banks.find((b) => b.id === c.bankaId)?.bankaAdi || '-';
+                // ÇEK / SENET KANONİK SÖZLEŞMESİ - 9.1 & 9.3: Banka gösterimi
+                // "Banka" kolonu = issuerBankName (çeki düzenleyen banka adı)
+                // "Tahsile Verilen Banka" = depositBankName (çeki tahsile verdiğimiz banka)
+                const issuerBankName = c.issuerBankName || '-'; // Çeki düzenleyen banka (çekin üstündeki banka)
+                const depositBankName = c.bankaAdi || banks.find((b) => b.id === c.bankaId)?.bankaAdi || '-'; // Çeki tahsile verdiğimiz banka (bizim bankamız)
+                
+                // ÇEK / SENET KANONİK SÖZLEŞMESİ - 9.1 & 9.2: Müşteri/Tedarikçi sütunu
+                // Kasaya giren çek: BOŞ (musteriId = null, tedarikciId = null)
+                // Kasadan tedarikçiye verilen çek: Tedarikçi adı görünür
                 const musteri = c.musteriId ? customers.find((m) => m.id === c.musteriId) : undefined;
                 const tedarikci = c.tedarikciId ? suppliers.find((s) => s.id === c.tedarikciId) : undefined;
-                const muhatap = musteri
-                  ? `${musteri.kod} - ${musteri.ad}`
-                  : tedarikci
-                  ? `${tedarikci.kod} - ${tedarikci.ad}`
-                  : '-';
+                const muhatap = (() => {
+                  // ÇEK / SENET KANONİK SÖZLEŞMESİ - 9.1: Kasaya giren çek - Müşteri/Tedarikçi sütunu: BOŞ
+                  if (c.direction === 'ALACAK' && c.status === 'KASADA' && !c.musteriId && !c.tedarikciId) {
+                    return '-';
+                  }
+                  // ÇEK / SENET KANONİK SÖZLEŞMESİ - 9.2: Kasadan tedarikçiye verilen çek - Tedarikçi adı görünür
+                  if (tedarikci) {
+                    return `${tedarikci.kod} - ${tedarikci.ad}`;
+                  }
+                  if (musteri) {
+                    return `${musteri.kod} - ${musteri.ad}`;
+                  }
+                  return '-';
+                })();
+                
                 const konum = c.kasaMi
                   ? 'Kasada'
                   : c.status === 'BANKADA_TAHSILDE'
@@ -369,11 +410,14 @@ export function CekSenetReport({ cheques, customers, suppliers, banks, onBackToD
                     >
                       {daysLeft}
                     </td>
-                    <td className="px-2 py-2 truncate" title={bankName}>
-                      {bankName}
+                    <td className="px-2 py-2 truncate" title={issuerBankName}>
+                      {issuerBankName}
                     </td>
-                    <td className="px-2 py-2">{c.duzenleyen}</td>
-                    <td className="px-2 py-2">{c.lehtar}</td>
+                    <td className="px-2 py-2 truncate" title={depositBankName}>
+                      {depositBankName}
+                    </td>
+                    <td className="px-2 py-2">{c.duzenleyen || '-'}</td>
+                    <td className="px-2 py-2">{c.lehtar || '-'}</td>
                     <td className="px-2 py-2 truncate" title={muhatap}>
                       {muhatap}
                     </td>
@@ -381,22 +425,48 @@ export function CekSenetReport({ cheques, customers, suppliers, banks, onBackToD
                     <td className="px-2 py-2">{statusLabels[c.status]}</td>
                     <td className="px-2 py-2">{konum}</td>
                     <td className="px-2 py-2">
-                      {c.imageDataUrl ? (
+                      {/* ÇEK / SENET KANONİK SÖZLEŞMESİ - 9.5: Çek görseli zorunlu, yüklüyse UI'da asla 'Yok' yazamaz */}
+                      {/* Görsel kontrolü: imageDataUrl veya imageUrl varsa göster */}
+                      {c.imageDataUrl || c.imageUrl ? (
                         <button
                           className="text-xs text-blue-600 underline"
                           onClick={() => {
-                            setPreviewImageUrl(c.imageDataUrl || null);
+                            const imageUrl = c.imageDataUrl || c.imageUrl || null;
+                            setPreviewImageUrl(imageUrl);
                             setPreviewTitle(c.imageFileName || `Çek No: ${c.cekNo}`);
                           }}
                         >
                           Göster
                         </button>
                       ) : (
-                        <span className="text-xs text-gray-400">Yok</span>
+                        // ÇEK / SENET KANONİK SÖZLEŞMESİ - 9.5: Görsel yoksa göster (ama zorunlu olduğu için bu durum olmamalı)
+                        <span className="text-xs text-rose-600">Görsel yüklenmemiş</span>
                       )}
                     </td>
                     <td className="px-2 py-2 truncate" title={c.aciklama || ''}>
                       {c.aciklama || '-'}
+                    </td>
+                    <td className="px-2 py-2">
+                      <button
+                        className="text-xs text-rose-600 hover:text-rose-700 underline disabled:opacity-50 disabled:cursor-not-allowed"
+                        onClick={async () => {
+                          if (window.confirm(`Çek No: ${c.cekNo}\nTutar: ${formatTl(c.tutar)}\n\nBu çeki silmek istediğinize emin misiniz?`)) {
+                            try {
+                              setDeletingChequeId(c.id);
+                              await apiDelete(`/api/cheques/${c.id}`);
+                              // Refresh the page to reload cheques list
+                              window.location.reload();
+                            } catch (error: any) {
+                              alert(`Çek silinirken hata oluştu: ${error?.message || 'Bilinmeyen hata'}`);
+                            } finally {
+                              setDeletingChequeId(null);
+                            }
+                          }
+                        }}
+                        disabled={deletingChequeId === c.id}
+                      >
+                        {deletingChequeId === c.id ? 'Siliniyor...' : 'Sil'}
+                      </button>
                     </td>
                   </tr>
                 );

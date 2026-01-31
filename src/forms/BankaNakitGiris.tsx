@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import Modal from '../components/ui/Modal';
 import FormRow from '../components/FormRow';
 import DateInput from '../components/DateInput';
 import MoneyInput from '../components/MoneyInput';
@@ -18,7 +19,7 @@ export type BankaNakitGirisTuru =
 
 export interface BankaNakitGirisFormValues {
   islemTarihiIso: string;
-  bankaId: string | null;
+  bankaId: string;
   islemTuru: BankaNakitGirisTuru;
   muhatapId?: string;
   muhatap?: string;
@@ -31,7 +32,7 @@ export interface BankaNakitGirisFormValues {
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  onSaved: (values: BankaNakitGirisFormValues) => void | Promise<void>;
+  onSaved: (values: BankaNakitGirisFormValues) => void;
   currentUserEmail: string;
   banks: BankMaster[];
   customers: Customer[];
@@ -56,7 +57,7 @@ export default function BankaNakitGiris({
   suppliers,
 }: Props) {
   const [islemTarihiIso, setIslemTarihiIso] = useState(todayIso());
-  const [bankaId, setBankaId] = useState<string | null>(null);
+  const [bankaId, setBankaId] = useState('');
   const [islemTuru, setIslemTuru] = useState<BankaNakitGirisTuru>('MUSTERI_EFT');
   const [muhatapId, setMuhatapId] = useState<string | null>(null);
   const [muhatap, setMuhatap] = useState('');
@@ -67,15 +68,21 @@ export default function BankaNakitGiris({
   useEffect(() => {
     if (isOpen) {
       setIslemTarihiIso(todayIso());
-      setBankaId(null);
+      setBankaId('');
       setIslemTuru('MUSTERI_EFT');
       setMuhatapId(null);
       setMuhatap('');
       setAciklama('');
       setTutar(null);
       setDirty(false);
+      
+      // Log available banks when form opens for debugging
+      console.log('BankaNakitGiris form opened. Available banks:', banks.map(b => ({ id: b.id, name: b.hesapAdi })));
+      if (banks.length === 0) {
+        console.warn('No banks available. Please create banks in settings or refresh the page.');
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, banks]);
 
   const muhatapRequired = useMemo(
     () => ['MUSTERI_EFT', 'TEDARIKCI_EFT', 'ORTAK_EFT_GELEN'].includes(islemTuru),
@@ -88,13 +95,21 @@ export default function BankaNakitGiris({
   };
 
   const handleSave = () => {
-    if (!islemTarihiIso || !bankaId || !islemTuru || !tutar || tutar <= 0) return;
-    const selectedBank = banks.find((b) => b.id === bankaId);
-    if (!selectedBank) {
-      alert('Seçilen banka listede bulunamadı. Lütfen banka listesini yenileyin.');
+    if (!islemTarihiIso || !bankaId || !islemTuru || !tutar || tutar <= 0) {
+      if (!bankaId) {
+        alert('Banka seçmelisiniz.');
+      }
       return;
     }
     if (muhatapRequired && !muhatap) return;
+    
+    // Validate that the selected bank exists in the banks array
+    const selectedBank = banks.find((b) => b.id === bankaId);
+    if (!selectedBank) {
+      alert('Seçilen banka geçersiz. Lütfen geçerli bir banka seçin.');
+      return;
+    }
+    
     const today = todayIso();
     if (islemTarihiIso > today) {
       alert('Gelecek tarihli işlem kaydedilemez.');
@@ -106,7 +121,7 @@ export default function BankaNakitGiris({
       (selected && `${selected.kod} - ${selected.ad}`) ||
       muhatap ||
       '-';
-    const bankaName = selectedBank.hesapAdi || '-';
+    const bankaName = selectedBank.hesapAdi;
     const baseMessage = [
       'Banka nakit giriş kaydedilsin mi?',
       '',
@@ -136,16 +151,32 @@ export default function BankaNakitGiris({
     });
   };
 
-  if (!isOpen) return null;
+  const footer = (
+    <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3">
+      <button
+        className="px-4 py-2 bg-slate-200 rounded-lg hover:bg-slate-300 transition-colors w-full sm:w-auto"
+        onClick={handleClose}
+      >
+        İptal
+      </button>
+      <button
+        className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors w-full sm:w-auto"
+        onClick={handleSave}
+      >
+        Kaydet
+      </button>
+    </div>
+  );
 
   return (
-    <div className="modal-backdrop">
-      <div className="modal">
-        <div className="flex items-center justify-between mb-4">
-          <div className="text-lg font-semibold">Banka Nakit Giriş</div>
-          <button onClick={handleClose}>✕</button>
-        </div>
-        <div className="space-y-4">
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      title="Banka Nakit Giriş"
+      size="md"
+      footer={footer}
+    >
+      <div className="space-y-4">
           <FormRow label="İşlem Tarihi" required>
             <DateInput
               value={islemTarihiIso}
@@ -158,10 +189,9 @@ export default function BankaNakitGiris({
           <FormRow label="Banka" required>
             <select
               className="input"
-              value={bankaId ?? ''}
+              value={bankaId}
               onChange={(e) => {
-                const value = e.target.value;
-                setBankaId(value || null);
+                setBankaId(e.target.value);
                 setDirty(true);
               }}
             >
@@ -190,7 +220,7 @@ export default function BankaNakitGiris({
             </select>
           </FormRow>
           <FormRow label="Muhatap" required={muhatapRequired}>
-            {['MUSTERI_EFT', 'TEDARIKCI_EFT', 'ORTAK_EFT_GELEN'].includes(islemTuru) ? (
+            {['MUSTERI_EFT', 'TEDARIKCI_EFT'].includes(islemTuru) ? (
               <SearchableSelect
                 valueId={muhatapId}
                 onChange={(val) => {
@@ -220,7 +250,7 @@ export default function BankaNakitGiris({
                   setMuhatap(e.target.value);
                   setDirty(true);
                 }}
-                placeholder="Muhatap"
+                placeholder={islemTuru === 'ORTAK_EFT_GELEN' ? 'Şirket ortağı adı' : 'Muhatap'}
               />
             )}
           </FormRow>
@@ -252,15 +282,6 @@ export default function BankaNakitGiris({
             <input className="input" value={currentUserEmail} readOnly />
           </FormRow>
         </div>
-        <div className="flex justify-end space-x-3 mt-6">
-          <button className="px-4 py-2 bg-slate-200 rounded-lg" onClick={handleClose}>
-            İptal
-          </button>
-          <button className="px-4 py-2 bg-indigo-600 text-white rounded-lg" onClick={handleSave}>
-            Kaydet
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

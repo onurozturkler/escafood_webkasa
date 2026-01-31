@@ -1,5 +1,5 @@
 import { PrismaClient, DailyTransactionType, DailyTransactionSource } from '@prisma/client';
-import prisma from '../../config/prisma';
+import { prisma } from '../../config/prisma';
 import {
   CreateCreditCardDto,
   UpdateCreditCardDto,
@@ -9,21 +9,25 @@ import {
   CreditCardOperationDto,
   ExpenseResponse,
   PaymentResponse,
-  BulkSaveCreditCardDto,
 } from './creditCards.types';
 
 /**
  * Calculate cash balance after a transaction
+ * FINANCIAL INVARIANT: Only KASA transactions affect cash balance
+ * Credit card transactions (source=KREDI_KARTI) never affect cash balance
  */
 async function calculateBalanceAfter(
   isoDate: string,
   incoming: number,
   outgoing: number,
+  storedSource: string,
   excludeTransactionId?: string
 ): Promise<number> {
+  // FINANCIAL INVARIANT: Only KASA transactions affect cash balance
   const where: any = {
     deletedAt: null,
     isoDate: { lte: isoDate },
+    source: 'KASA', // Only include KASA transactions in cash balance calculation
   };
 
   if (excludeTransactionId) {
@@ -32,65 +36,32 @@ async function calculateBalanceAfter(
 
   const transactions = await prisma.transaction.findMany({
     where,
+    select: {
+      incoming: true,
+      outgoing: true,
+    },
     orderBy: [
       { isoDate: 'asc' },
       { createdAt: 'asc' },
     ],
   });
 
+  // Calculate balance up to this point (only KASA transactions)
   let balance = 0;
   for (const tx of transactions) {
     balance += Number(tx.incoming) - Number(tx.outgoing);
   }
 
-  balance += incoming - outgoing;
+  // Add the new transaction's effect only if it's a KASA transaction
+  // Credit card transactions (source=KREDI_KARTI) have 0 effect on cash balance
+  if (storedSource === 'KASA') {
+    balance += incoming - outgoing;
+  }
 
   return balance;
 }
 
 export class CreditCardsService {
-  private mapCreditCard(card: any): CreditCardDto {
-    const currentDebt = card.operations
-      ? card.operations.reduce((sum: number, op: any) => sum + Number(op.amount), 0)
-      : 0;
-    const lastOperationDate =
-      card.operations && card.operations.length > 0 ? card.operations[0].isoDate : null;
-
-    return {
-      id: card.id,
-      name: card.name,
-      bankId: card.bankId,
-      limit: card.limit !== null && card.limit !== undefined ? Number(card.limit) : null,
-      sonEkstreBorcu: card.sonEkstreBorcu !== null && card.sonEkstreBorcu !== undefined ? Number(card.sonEkstreBorcu) : 0,
-      manualGuncelBorc:
-        card.manualGuncelBorc !== null && card.manualGuncelBorc !== undefined
-          ? Number(card.manualGuncelBorc)
-          : null,
-      closingDay: card.closingDay,
-      dueDay: card.dueDay,
-      isActive: card.isActive,
-      createdAt: card.createdAt.toISOString(),
-      createdBy: card.createdBy,
-      updatedAt: card.updatedAt?.toISOString() || null,
-      updatedBy: card.updatedBy || null,
-      deletedAt: card.deletedAt?.toISOString() || null,
-      deletedBy: card.deletedBy || null,
-      currentDebt,
-      lastOperationDate,
-      bank: card.bank || null,
-    };
-  }
-
-  private async logCardState(id: string): Promise<void> {
-    if (process.env.DEBUG_CREDIT_CARD_SAVE !== '1') return;
-    const fresh = await prisma.creditCard.findUnique({
-      where: { id },
-      select: { id: true, sonEkstreBorcu: true, manualGuncelBorc: true },
-    });
-    // eslint-disable-next-line no-console
-    console.log('[credit-card-save]', fresh?.id, Number(fresh?.sonEkstreBorcu || 0), fresh?.manualGuncelBorc ? Number(fresh.manualGuncelBorc) : null);
-  }
-
   /**
    * Get all credit cards with computed currentDebt
    */
@@ -124,7 +95,49 @@ export class CreditCardsService {
       },
     });
 
-    return cards.map((card) => this.mapCreditCard(card));
+    return cards.map((card) => {
+      // Calculate current debt: use manualGuncelBorc if set, otherwise calculate from operations
+      const calculatedDebt = card.operations.reduce((sum: number, op) => sum + Number(op.amount), 0);
+      const manualGuncelBorc = card.manualGuncelBorc !== null && card.manualGuncelBorc !== undefined 
+        ? Number(card.manualGuncelBorc) 
+        : null;
+      const currentDebt = manualGuncelBorc !== null ? manualGuncelBorc : calculatedDebt;
+      
+      const lastOperationDate =
+        card.operations.length > 0 ? card.operations[0].isoDate : null;
+
+      // BUG 1 FIX: Preserve null limit correctly - don't convert 0 to null (though 0 is invalid for credit cards)
+      // Test case: limit=250000 should return 250000
+      const limit = card.limit !== null && card.limit !== undefined ? Number(card.limit) : null;
+      const availableLimit = limit !== null ? limit - currentDebt : null;
+      
+      const sonEkstreBorcu = card.sonEkstreBorcu !== null && card.sonEkstreBorcu !== undefined 
+        ? Number(card.sonEkstreBorcu) 
+        : 0;
+
+
+      return {
+        id: card.id,
+        name: card.name,
+        bankId: card.bankId,
+        limit,
+        closingDay: card.closingDay,
+        dueDay: card.dueDay,
+        sonEkstreBorcu,
+        manualGuncelBorc,
+        isActive: card.isActive,
+        createdAt: card.createdAt.toISOString(),
+        createdBy: card.createdBy,
+        updatedAt: card.updatedAt?.toISOString() || null,
+        updatedBy: card.updatedBy || null,
+        deletedAt: card.deletedAt?.toISOString() || null,
+        deletedBy: card.deletedBy || null,
+        currentDebt,
+        availableLimit,
+        lastOperationDate,
+        bank: card.bank || null,
+      };
+    });
   }
 
   /**
@@ -159,7 +172,72 @@ export class CreditCardsService {
       return null;
     }
 
-    return this.mapCreditCard(card);
+    // Calculate current debt: use manualGuncelBorc if set, otherwise calculate from operations
+    const calculatedDebt = card.operations.reduce((sum: number, op) => sum + Number(op.amount), 0);
+    const manualGuncelBorc = card.manualGuncelBorc !== null && card.manualGuncelBorc !== undefined 
+      ? Number(card.manualGuncelBorc) 
+      : null;
+    const currentDebt = manualGuncelBorc !== null ? manualGuncelBorc : calculatedDebt;
+    
+    const lastOperationDate =
+      card.operations.length > 0 ? card.operations[0].isoDate : null;
+
+    // deletedAt'ı açık açık Date | null olarak ele al
+    const deletedAtValue: Date | null = card.deletedAt
+      ? new Date(card.deletedAt as any)
+      : null;
+
+    // FIX: Use consistent pattern - don't treat 0 as falsy
+    // A limit of 0 is a valid value and should not be converted to null
+    const limit = card.limit !== null && card.limit !== undefined ? Number(card.limit) : null;
+    const availableLimit = limit !== null ? limit - currentDebt : null;
+    
+    const sonEkstreBorcu = card.sonEkstreBorcu !== null && card.sonEkstreBorcu !== undefined 
+      ? Number(card.sonEkstreBorcu) 
+      : 0;
+
+    return {
+      id: card.id,
+      name: card.name,
+      bankId: card.bankId,
+      limit,
+      closingDay: card.closingDay,
+      dueDay: card.dueDay,
+      sonEkstreBorcu,
+      manualGuncelBorc,
+      isActive: card.isActive,
+      createdAt: card.createdAt.toISOString(),
+      createdBy: card.createdBy,
+      updatedAt: card.updatedAt ? card.updatedAt.toISOString() : null,
+      updatedBy: card.updatedBy || null,
+      deletedAt: deletedAtValue ? deletedAtValue.toISOString() : null,
+      deletedBy: card.deletedBy || null,
+      currentDebt,
+      availableLimit,
+      lastOperationDate,
+      bank: card.bank || null,
+    };
+  }
+
+  /**
+   * Helper to fetch a credit card by ID or throw error
+   */
+  private async getCardOrThrow(creditCardId: string) {
+    const card = await prisma.creditCard.findUnique({
+      where: { id: creditCardId },
+      include: {
+        bank: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+    if (!card) {
+      throw new Error('Credit card not found');
+    }
+    return card;
   }
 
   /**
@@ -171,10 +249,10 @@ export class CreditCardsService {
         name: data.name,
         bankId: data.bankId || null,
         limit: data.limit !== undefined ? data.limit : null,
-        sonEkstreBorcu: data.sonEkstreBorcu ?? 0,
-        manualGuncelBorc: data.manualGuncelBorc ?? null,
         closingDay: data.closingDay || null,
         dueDay: data.dueDay || null,
+        sonEkstreBorcu: data.sonEkstreBorcu !== undefined ? data.sonEkstreBorcu : 0,
+        manualGuncelBorc: data.manualGuncelBorc !== undefined ? data.manualGuncelBorc : null,
         isActive: data.isActive !== undefined ? data.isActive : true,
         createdBy,
       },
@@ -188,9 +266,39 @@ export class CreditCardsService {
       },
     });
 
-    await this.logCardState(card.id);
+    // BUG 1 FIX: Preserve null limit correctly for new cards
+    // Test case: limit=250000 should return 250000
+    const limit = card.limit !== null && card.limit !== undefined ? Number(card.limit) : null;
+    const manualGuncelBorc = card.manualGuncelBorc !== null && card.manualGuncelBorc !== undefined 
+      ? Number(card.manualGuncelBorc) 
+      : null;
+    const currentDebt = manualGuncelBorc !== null ? manualGuncelBorc : 0; // New card has no operations yet
+    const availableLimit = limit !== null ? limit - currentDebt : null;
+    const sonEkstreBorcu = card.sonEkstreBorcu !== null && card.sonEkstreBorcu !== undefined 
+      ? Number(card.sonEkstreBorcu) 
+      : 0;
 
-    return this.mapCreditCard({ ...card, operations: [] });
+    return {
+      id: card.id,
+      name: card.name,
+      bankId: card.bankId,
+      limit,
+      closingDay: card.closingDay,
+      dueDay: card.dueDay,
+      sonEkstreBorcu,
+      manualGuncelBorc,
+      isActive: card.isActive,
+      createdAt: card.createdAt.toISOString(),
+      createdBy: card.createdBy,
+      updatedAt: card.updatedAt?.toISOString() || null,
+      updatedBy: card.updatedBy || null,
+      deletedAt: card.deletedAt?.toISOString() || null,
+      deletedBy: card.deletedBy || null,
+      currentDebt,
+      availableLimit,
+      lastOperationDate: null,
+      bank: card.bank || null,
+    };
   }
 
   /**
@@ -213,14 +321,16 @@ export class CreditCardsService {
       throw new Error('Cannot update deleted credit card');
     }
 
+    // BUG 1 FIX: Handle limit update correctly - if limit is explicitly null, set it to null
+    // Test case: limit=250000 should be saved as 250000
+    // Test case: limit=null should clear the limit (set to null in DB)
     const updated = await prisma.creditCard.update({
       where: { id },
       data: {
         ...data,
-        limit: data.limit !== undefined ? data.limit : card.limit,
-        sonEkstreBorcu: data.sonEkstreBorcu ?? card.sonEkstreBorcu ?? 0,
-        manualGuncelBorc:
-          data.manualGuncelBorc !== undefined ? data.manualGuncelBorc : card.manualGuncelBorc,
+        limit: data.limit !== undefined ? data.limit : card.limit, // Preserve existing if not provided, otherwise use new value (including null)
+        sonEkstreBorcu: data.sonEkstreBorcu !== undefined ? data.sonEkstreBorcu : card.sonEkstreBorcu,
+        manualGuncelBorc: data.manualGuncelBorc !== undefined ? data.manualGuncelBorc : card.manualGuncelBorc,
         updatedBy,
         updatedAt: new Date(),
       },
@@ -246,127 +356,183 @@ export class CreditCardsService {
       },
     });
 
-    await this.logCardState(updated.id);
+    // Calculate current debt: use manualGuncelBorc if set, otherwise calculate from operations
+    const calculatedDebt = updated.operations.reduce((sum: number, op) => sum + Number(op.amount), 0);
+    const manualGuncelBorc = updated.manualGuncelBorc !== null && updated.manualGuncelBorc !== undefined 
+      ? Number(updated.manualGuncelBorc) 
+      : null;
+    const currentDebt = manualGuncelBorc !== null ? manualGuncelBorc : calculatedDebt;
+    
+    const lastOperationDate =
+      updated.operations.length > 0 ? updated.operations[0].isoDate : null;
 
-    return this.mapCreditCard(updated);
-  }
+    // BUG 1 FIX: Preserve null limit correctly - don't convert 0 to null
+    // Test case: limit=250000 should return 250000
+    // Test case: limit=null should return null
+    const limit = updated.limit !== null && updated.limit !== undefined ? Number(updated.limit) : null;
+    const availableLimit = limit !== null ? limit - currentDebt : null;
+    
+    const sonEkstreBorcu = updated.sonEkstreBorcu !== null && updated.sonEkstreBorcu !== undefined 
+      ? Number(updated.sonEkstreBorcu) 
+      : 0;
 
-  async bulkSave(cards: BulkSaveCreditCardDto[], userId: string): Promise<CreditCardDto[]> {
-    const results: CreditCardDto[] = [];
-
-    for (const card of cards) {
-      const data = {
-        name: card.name || '',
-        bankId: card.bankId || null,
-        limit: card.limit ?? null,
-        sonEkstreBorcu: card.sonEkstreBorcu ?? 0,
-        manualGuncelBorc: card.manualGuncelBorc ?? null,
-        closingDay: card.closingDay ?? null,
-        dueDay: card.dueDay ?? null,
-        isActive: card.isActive ?? true,
-        updatedBy: userId,
-        updatedAt: new Date(),
-      };
-
-      let saved;
-      if (card.id) {
-        saved = await prisma.creditCard.upsert({
-          where: { id: card.id },
-          update: data,
-          create: {
-            ...data,
-            createdBy: userId,
-          },
-          include: {
-            bank: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-            operations: {
-              where: { deletedAt: null },
-              select: { isoDate: true, amount: true },
-              orderBy: { isoDate: 'desc' },
-            },
-          },
-        });
-      } else {
-        saved = await prisma.creditCard.create({
-          data: {
-            ...data,
-            createdBy: userId,
-          },
-          include: {
-            bank: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-            operations: {
-              where: { deletedAt: null },
-              select: { isoDate: true, amount: true },
-              orderBy: { isoDate: 'desc' },
-            },
-          },
-        });
-      }
-
-      await this.logCardState(saved.id);
-      results.push(this.mapCreditCard(saved));
-    }
-
-    return results;
+    return {
+      id: updated.id,
+      name: updated.name,
+      bankId: updated.bankId,
+      limit,
+      closingDay: updated.closingDay,
+      dueDay: updated.dueDay,
+      sonEkstreBorcu,
+      manualGuncelBorc,
+      isActive: updated.isActive,
+      createdAt: updated.createdAt.toISOString(),
+      createdBy: updated.createdBy,
+      updatedAt: updated.updatedAt?.toISOString() || null,
+      updatedBy: updated.updatedBy || null,
+      deletedAt: updated.deletedAt?.toISOString() || null,
+      deletedBy: updated.deletedBy || null,
+      currentDebt,
+      availableLimit,
+      lastOperationDate,
+      bank: updated.bank || null,
+    };
   }
 
   /**
    * Create an expense (HARCAMA)
    */
-  async createExpense(data: CreateExpenseDto, createdBy: string): Promise<ExpenseResponse> {
+  async createExpense(data: CreateExpenseDto, createdBy: string, createdByEmail: string): Promise<ExpenseResponse> {
     // Verify credit card exists
-    const card = await prisma.creditCard.findUnique({
-      where: { id: data.creditCardId },
-    });
+    const card = await this.getCardOrThrow(data.creditCardId);
 
-    if (!card || card.deletedAt) {
+    if (card.deletedAt) {
       throw new Error('Credit card not found');
     }
 
-    // Create transaction first (to get its ID)
-    const balanceAfter = await calculateBalanceAfter(data.isoDate, 0, 0);
 
-    const transaction = await prisma.transaction.create({
-      data: {
-        isoDate: data.isoDate,
-        documentNo: null,
-        type: 'KREDI_KARTI_HARCAMA',
-        source: 'KREDI_KARTI',
-        creditCardId: data.creditCardId,
-        counterparty: data.counterparty || null,
-        description: data.description || null,
-        incoming: 0,
-        outgoing: 0,
-        bankDelta: 0,
-        displayIncoming: null,
-        displayOutgoing: data.amount,
-        balanceAfter,
-        createdBy,
-      },
+    // FINANCIAL INVARIANT: Credit card expense never affects cash balance
+    // Calculate balance after (will be 0 since incoming=0, outgoing=0, and source=KREDI_KARTI)
+    const balanceAfter = await calculateBalanceAfter(data.isoDate, 0, 0, 'KREDI_KARTI');
+
+    // Determine if transaction date is before or on closing day
+    const transactionDay = parseInt(data.isoDate.split('-')[2] || '0', 10);
+    const closingDay = card.closingDay || 31; // Default to 31 if not set
+    const isBeforeCutoff = transactionDay <= closingDay;
+
+    // Calculate new debt values
+    const currentSonEkstreBorcu = card.sonEkstreBorcu !== null && card.sonEkstreBorcu !== undefined 
+      ? Number(card.sonEkstreBorcu) 
+      : 0;
+    const currentManualGuncelBorc = card.manualGuncelBorc !== null && card.manualGuncelBorc !== undefined
+      ? Number(card.manualGuncelBorc)
+      : null;
+
+    // Update rules:
+    // - If transaction date <= closingDay: sonEkstreBorcu += amount
+    // - Always: manualGuncelBorc += amount (or set to amount if null)
+    const newSonEkstreBorcu = isBeforeCutoff 
+      ? currentSonEkstreBorcu + data.amount 
+      : currentSonEkstreBorcu;
+    const newManualGuncelBorc = currentManualGuncelBorc !== null
+      ? currentManualGuncelBorc + data.amount
+      : data.amount;
+
+
+    // BELGE NO (ZORUNLU) - 3.1: Belge No asla boş olamaz
+    // KREDI_KARTI_HARCAMA için otomatik belge no üret
+    const { autoGenerateDocumentNo } = await import('../transactions/transactions.documentNo');
+    const documentNo = await autoGenerateDocumentNo(
+      'KREDI_KARTI_HARCAMA',
+      'KREDI_KARTI',
+      data.isoDate,
+      null // Always auto-generate for credit card expenses
+    );
+
+    // Atomic transaction: create transaction, operation, and update credit card together
+    const result = await prisma.$transaction(async (tx) => {
+      // Create transaction
+      const transaction = await tx.transaction.create({
+        data: {
+          isoDate: data.isoDate,
+          documentNo: documentNo, // BELGE NO (ZORUNLU): Auto-generated
+          type: 'KREDI_KARTI_HARCAMA',
+          source: 'KREDI_KARTI',
+          creditCardId: data.creditCardId,
+          counterparty: data.counterparty || null,
+          description: data.description || null,
+          incoming: 0,
+          outgoing: 0,
+          bankDelta: 0,
+          displayIncoming: null,
+          displayOutgoing: data.amount,
+          balanceAfter,
+          createdBy, // KULLANICI / AUTH / AUDIT - 7.1: createdByUserId
+          createdByEmail, // KULLANICI / AUTH / AUDIT - 7.1: createdByEmail
+        },
+      });
+
+      // Create credit card operation
+      const operation = await tx.creditCardOperation.create({
+        data: {
+          creditCardId: data.creditCardId,
+          isoDate: data.isoDate,
+          type: 'HARCAMA',
+          amount: data.amount, // Positive for HARCAMA
+          description: data.description || null,
+          relatedTransactionId: transaction.id,
+          createdBy,
+        },
+      });
+
+      // CRITICAL FIX: Update credit card debt values atomically
+      const updatedCard = await tx.creditCard.update({
+        where: { id: data.creditCardId },
+        data: {
+          sonEkstreBorcu: newSonEkstreBorcu,
+          manualGuncelBorc: newManualGuncelBorc,
+          updatedAt: new Date(),
+          updatedBy: createdBy,
+        },
+        include: {
+          bank: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          operations: {
+            where: {
+              deletedAt: null,
+            },
+            select: {
+              isoDate: true,
+              amount: true,
+            },
+            orderBy: {
+              isoDate: 'desc',
+            },
+          },
+        },
+      });
+
+
+      return { transaction, operation, updatedCard };
     });
 
-    // Create credit card operation
-    const operation = await prisma.creditCardOperation.create({
-      data: {
-        creditCardId: data.creditCardId,
-        isoDate: data.isoDate,
-        type: 'HARCAMA',
-        amount: data.amount, // Positive for HARCAMA
-        description: data.description || null,
-        relatedTransactionId: transaction.id,
-        createdBy,
-      },
-    });
+    const { transaction, operation, updatedCard } = result;
+
+    // Calculate response values
+    const limit = updatedCard.limit !== null && updatedCard.limit !== undefined ? Number(updatedCard.limit) : null;
+    const manualGuncelBorc = updatedCard.manualGuncelBorc !== null && updatedCard.manualGuncelBorc !== undefined 
+      ? Number(updatedCard.manualGuncelBorc) 
+      : null;
+    const calculatedDebt = updatedCard.operations.reduce((sum: number, op) => sum + Number(op.amount), 0);
+    const currentDebt = manualGuncelBorc !== null ? manualGuncelBorc : calculatedDebt;
+    const availableLimit = limit !== null ? limit - currentDebt : null;
+    const sonEkstreBorcu = updatedCard.sonEkstreBorcu !== null && updatedCard.sonEkstreBorcu !== undefined 
+      ? Number(updatedCard.sonEkstreBorcu) 
+      : 0;
 
     return {
       operation: {
@@ -394,19 +560,33 @@ export class CreditCardsService {
         description: transaction.description,
         displayOutgoing: transaction.displayOutgoing ? Number(transaction.displayOutgoing) : null,
       },
+      // CRITICAL FIX: Include updated credit card in response
+      creditCard: {
+        id: updatedCard.id,
+        name: updatedCard.name,
+        bankId: updatedCard.bankId,
+        limit,
+        closingDay: updatedCard.closingDay,
+        dueDay: updatedCard.dueDay,
+        sonEkstreBorcu,
+        manualGuncelBorc,
+        isActive: updatedCard.isActive,
+        currentDebt,
+        availableLimit,
+        lastOperationDate: updatedCard.operations.length > 0 ? updatedCard.operations[0].isoDate : null,
+        bank: updatedCard.bank || null,
+      },
     };
   }
 
   /**
    * Create a payment (ODEME)
    */
-  async createPayment(data: CreatePaymentDto, createdBy: string): Promise<PaymentResponse> {
+  async createPayment(data: CreatePaymentDto, createdBy: string, createdByEmail: string): Promise<PaymentResponse> {
     // Verify credit card exists
-    const card = await prisma.creditCard.findUnique({
-      where: { id: data.creditCardId },
-    });
+    const card = await this.getCardOrThrow(data.creditCardId);
 
-    if (!card || card.deletedAt) {
+    if (card.deletedAt) {
       throw new Error('Credit card not found');
     }
 
@@ -415,58 +595,146 @@ export class CreditCardsService {
       throw new Error('bankId is required when paymentSource is BANKA');
     }
 
-    // Determine transaction fields based on paymentSource
+    // Fix: Apply strict mapping for credit card payments
     let incoming = 0;
     let outgoing = 0;
     let bankDelta = 0;
     let bankId: string | null = null;
 
     if (data.paymentSource === 'BANKA') {
+      // CREDIT CARD PAYMENT from bank: source=BANKA, incoming=0, outgoing=amount, bankDelta=-amount
       bankId = data.bankId || null;
+      incoming = 0;
+      outgoing = data.amount; // Backend transaction service will normalize based on type
       bankDelta = -data.amount; // Negative for bank outflow
-      outgoing = 0;
     } else {
-      // KASA
+      // KASA - payment from cash
       bankId = null;
-      bankDelta = 0;
+      incoming = 0;
       outgoing = data.amount;
+      bankDelta = 0;
     }
 
-    const balanceAfter = await calculateBalanceAfter(data.isoDate, incoming, outgoing);
+    // Fix: Credit card payment from bank should have source=BANKA
+    const transactionSource = data.paymentSource === 'BANKA' ? 'BANKA' : 'KASA';
+    
+    // FINANCIAL INVARIANT: Only KASA payments affect cash balance
+    // Bank payments (source=BANKA) don't affect cash balance
+    const balanceAfter = await calculateBalanceAfter(data.isoDate, incoming, outgoing, transactionSource);
+    
+    // CREDIT CARD EKSTRE ÖDEME BORÇ MODELİ (FINANCIAL INVARIANT):
+    // guncelBorc = kredi kartının toplam borcu
+    // sonEkstreBorcu = bu toplam borcun ekstreye yansımış kısmı
+    // Ekstre ödeme yapıldığında:
+    // - sonEkstreBorcu = Math.max(sonEkstreBorcu - paymentAmount, 0) (0 altına inmez)
+    // - guncelBorc = guncelBorc - paymentAmount (tam tutar kadar azalır)
+    const currentSonEkstreBorcu = card.sonEkstreBorcu !== null && card.sonEkstreBorcu !== undefined 
+      ? Number(card.sonEkstreBorcu) 
+      : 0;
+    const currentManualGuncelBorc = card.manualGuncelBorc !== null && card.manualGuncelBorc !== undefined
+      ? Number(card.manualGuncelBorc)
+      : null;
 
-    // Create transaction
-    const transaction = await prisma.transaction.create({
-      data: {
-        isoDate: data.isoDate,
-        documentNo: null,
-        type: 'KREDI_KARTI_EKSTRE_ODEME',
-        source: 'KREDI_KARTI',
-        creditCardId: data.creditCardId,
-        bankId,
-        counterparty: null,
-        description: data.description || null,
-        incoming,
-        outgoing,
-        bankDelta,
-        displayIncoming: null,
-        displayOutgoing: null,
-        balanceAfter,
-        createdBy,
-      },
+    // Calculate new debt values after payment
+    const newSonEkstreBorcu = Math.max(currentSonEkstreBorcu - data.amount, 0); // Never go below 0
+    const newManualGuncelBorc = currentManualGuncelBorc !== null
+      ? Math.max(currentManualGuncelBorc - data.amount, 0) // Reduce by full payment amount, but never go below 0
+      : null; // If manualGuncelBorc was null, keep it null (will be calculated from operations)
+    
+    // BELGE NO (ZORUNLU) - 3.1: Belge No asla boş olamaz
+    // KREDI_KARTI_EKSTRE_ODEME için otomatik belge no üret
+    const { autoGenerateDocumentNo } = await import('../transactions/transactions.documentNo');
+    const documentNo = await autoGenerateDocumentNo(
+      'KREDI_KARTI_EKSTRE_ODEME',
+      transactionSource,
+      data.isoDate,
+      null // Always auto-generate for credit card payments
+    );
+
+    // Atomic transaction: create transaction, operation, and update credit card together
+    const result = await prisma.$transaction(async (tx) => {
+      // Create transaction
+      const transaction = await tx.transaction.create({
+        data: {
+          isoDate: data.isoDate,
+          documentNo: documentNo, // BELGE NO (ZORUNLU): Auto-generated
+          type: 'KREDI_KARTI_EKSTRE_ODEME',
+          source: transactionSource, // BANKA if payment from bank, KASA if from cash
+          creditCardId: data.creditCardId,
+          bankId,
+          counterparty: null,
+          description: data.description || null,
+          incoming,
+          outgoing,
+          bankDelta,
+          displayIncoming: null,
+          displayOutgoing: null,
+          balanceAfter,
+          createdBy, // KULLANICI / AUTH / AUDIT - 7.1: createdByUserId
+          createdByEmail, // KULLANICI / AUTH / AUDIT - 7.1: createdByEmail
+        },
+      });
+
+      // Create credit card operation
+      const operation = await tx.creditCardOperation.create({
+        data: {
+          creditCardId: data.creditCardId,
+          isoDate: data.isoDate,
+          type: 'ODEME',
+          amount: -data.amount, // Negative for ODEME (reduces debt)
+          description: data.description || null,
+          relatedTransactionId: transaction.id,
+          createdBy,
+        },
+      });
+
+      // CRITICAL FIX: Update credit card debt values atomically
+      const updatedCard = await tx.creditCard.update({
+        where: { id: data.creditCardId },
+        data: {
+          sonEkstreBorcu: newSonEkstreBorcu,
+          manualGuncelBorc: newManualGuncelBorc,
+          updatedAt: new Date(),
+          updatedBy: createdBy,
+        },
+        include: {
+          bank: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          operations: {
+            where: {
+              deletedAt: null,
+            },
+            select: {
+              isoDate: true,
+              amount: true,
+            },
+            orderBy: {
+              isoDate: 'desc',
+            },
+          },
+        },
+      });
+
+      return { transaction, operation, updatedCard };
     });
 
-    // Create credit card operation
-    const operation = await prisma.creditCardOperation.create({
-      data: {
-        creditCardId: data.creditCardId,
-        isoDate: data.isoDate,
-        type: 'ODEME',
-        amount: -data.amount, // Negative for ODEME (reduces debt)
-        description: data.description || null,
-        relatedTransactionId: transaction.id,
-        createdBy,
-      },
-    });
+    const { transaction, operation, updatedCard } = result;
+
+    // Calculate response values
+    const limit = updatedCard.limit !== null && updatedCard.limit !== undefined ? Number(updatedCard.limit) : null;
+    const manualGuncelBorc = updatedCard.manualGuncelBorc !== null && updatedCard.manualGuncelBorc !== undefined 
+      ? Number(updatedCard.manualGuncelBorc) 
+      : null;
+    const calculatedDebt = updatedCard.operations.reduce((sum: number, op) => sum + Number(op.amount), 0);
+    const currentDebt = manualGuncelBorc !== null ? manualGuncelBorc : calculatedDebt;
+    const availableLimit = limit !== null ? limit - currentDebt : null;
+    const sonEkstreBorcu = updatedCard.sonEkstreBorcu !== null && updatedCard.sonEkstreBorcu !== undefined 
+      ? Number(updatedCard.sonEkstreBorcu) 
+      : 0;
 
     return {
       operation: {
@@ -496,6 +764,253 @@ export class CreditCardsService {
         bankDelta: Number(transaction.bankDelta),
         outgoing: Number(transaction.outgoing),
       },
+      // CRITICAL FIX: Include updated credit card in response (same as createExpense)
+      creditCard: {
+        id: updatedCard.id,
+        name: updatedCard.name,
+        bankId: updatedCard.bankId,
+        limit,
+        closingDay: updatedCard.closingDay,
+        dueDay: updatedCard.dueDay,
+        sonEkstreBorcu,
+        manualGuncelBorc,
+        isActive: updatedCard.isActive,
+        currentDebt,
+        availableLimit,
+        lastOperationDate: updatedCard.operations.length > 0 ? updatedCard.operations[0].isoDate : null,
+        bank: updatedCard.bank || null,
+      },
     };
   }
+
+  /**
+   * Bulk save credit cards (create or update multiple cards)
+   */
+  async bulkSaveCreditCards(
+    payload: Array<{
+      id: string;
+      name: string;
+      bankId?: string | null;
+      limit?: number | null;
+      closingDay?: number | null;
+      dueDay?: number | null;
+      sonEkstreBorcu?: number;
+      manualGuncelBorc?: number | null;
+      isActive?: boolean;
+    }>,
+    userId: string
+  ): Promise<CreditCardDto[]> {
+    
+    const results: CreditCardDto[] = [];
+
+    for (const item of payload) {
+      const isNew = item.id.startsWith('tmp-');
+
+      if (isNew) {
+        // Create new credit card
+        // CRITICAL FIX: Explicitly handle sonEkstreBorcu and manualGuncelBorc
+        // If provided (even if 0), use it; otherwise use defaults
+        const createData = {
+          name: item.name,
+          bankId: item.bankId ?? null,
+          limit: item.limit ?? null,
+          closingDay: item.closingDay ?? null,
+          dueDay: item.dueDay ?? null,
+          sonEkstreBorcu: item.sonEkstreBorcu !== undefined ? item.sonEkstreBorcu : 0,
+          manualGuncelBorc: item.manualGuncelBorc !== undefined ? item.manualGuncelBorc : null,
+          isActive: item.isActive ?? true,
+          createdBy: userId,
+        };
+        
+        
+        const created = await prisma.creditCard.create({
+          data: createData,
+          include: {
+            bank: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+            operations: {
+              where: {
+                deletedAt: null,
+              },
+              select: {
+                isoDate: true,
+                amount: true,
+              },
+              orderBy: {
+                isoDate: 'desc',
+              },
+            },
+          },
+        });
+
+        const limit = created.limit !== null && created.limit !== undefined ? Number(created.limit) : null;
+        const manualGuncelBorc = created.manualGuncelBorc !== null && created.manualGuncelBorc !== undefined 
+          ? Number(created.manualGuncelBorc) 
+          : null;
+        const currentDebt = manualGuncelBorc !== null ? manualGuncelBorc : 0; // New card has no operations yet
+        const availableLimit = limit !== null ? limit - currentDebt : null;
+        const sonEkstreBorcu = created.sonEkstreBorcu !== null && created.sonEkstreBorcu !== undefined 
+          ? Number(created.sonEkstreBorcu) 
+          : 0;
+
+        results.push({
+          id: created.id,
+          name: created.name,
+          bankId: created.bankId,
+          limit,
+          closingDay: created.closingDay,
+          dueDay: created.dueDay,
+          sonEkstreBorcu,
+          manualGuncelBorc,
+          isActive: created.isActive,
+          createdAt: created.createdAt.toISOString(),
+          createdBy: created.createdBy,
+          updatedAt: created.updatedAt?.toISOString() || null,
+          updatedBy: created.updatedBy || null,
+          deletedAt: created.deletedAt?.toISOString() || null,
+          deletedBy: created.deletedBy || null,
+          currentDebt,
+          availableLimit,
+          lastOperationDate: null,
+          bank: created.bank || null,
+        });
+      } else {
+        // Update existing credit card
+        const existing = await prisma.creditCard.findUnique({ where: { id: item.id } });
+        if (!existing || existing.deletedAt) {
+          continue; // Skip deleted or non-existent cards
+        }
+
+
+        // CRITICAL FIX: Always update sonEkstreBorcu and manualGuncelBorc if provided in payload
+        // This ensures user-entered values (including 0) are preserved
+        // The controller now includes these fields in the payload, so they should always be present
+        const updateData: any = {
+          name: item.name,
+          bankId: item.bankId !== undefined ? item.bankId : existing.bankId,
+          limit: item.limit !== undefined ? item.limit : existing.limit,
+          closingDay: item.closingDay !== undefined ? item.closingDay : existing.closingDay,
+          dueDay: item.dueDay !== undefined ? item.dueDay : existing.dueDay,
+          isActive: item.isActive !== undefined ? item.isActive : existing.isActive,
+          updatedAt: new Date(),
+          updatedBy: userId,
+        };
+        
+        // sonEkstreBorcu: if provided (even if 0), use it; otherwise keep existing
+        if (item.sonEkstreBorcu !== undefined) {
+          updateData.sonEkstreBorcu = typeof item.sonEkstreBorcu === 'number' 
+            ? item.sonEkstreBorcu 
+            : Number(item.sonEkstreBorcu);
+        } else {
+          updateData.sonEkstreBorcu = existing.sonEkstreBorcu;
+        }
+        
+        // manualGuncelBorc: if provided as number (even if 0), use it; if null, set to null; otherwise keep existing
+        if (item.manualGuncelBorc !== undefined) {
+          if (item.manualGuncelBorc === null) {
+            updateData.manualGuncelBorc = null;
+          } else {
+            updateData.manualGuncelBorc = typeof item.manualGuncelBorc === 'number'
+              ? item.manualGuncelBorc
+              : Number(item.manualGuncelBorc);
+          }
+        } else {
+          updateData.manualGuncelBorc = existing.manualGuncelBorc;
+        }
+        
+
+        const updated = await prisma.creditCard.update({
+          where: { id: item.id },
+          data: updateData,
+          include: {
+            bank: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+            operations: {
+              where: {
+                deletedAt: null,
+              },
+              select: {
+                isoDate: true,
+                amount: true,
+              },
+              orderBy: {
+                isoDate: 'desc',
+              },
+            },
+          },
+        });
+
+        // Calculate current debt: use manualGuncelBorc if set, otherwise calculate from operations
+        const calculatedDebt = updated.operations.reduce((sum: number, op) => sum + Number(op.amount), 0);
+        const manualGuncelBorc = updated.manualGuncelBorc !== null && updated.manualGuncelBorc !== undefined 
+          ? Number(updated.manualGuncelBorc) 
+          : null;
+        const currentDebt = manualGuncelBorc !== null ? manualGuncelBorc : calculatedDebt;
+        
+        const lastOperationDate =
+          updated.operations.length > 0 ? updated.operations[0].isoDate : null;
+        const limit = updated.limit !== null && updated.limit !== undefined ? Number(updated.limit) : null;
+        const availableLimit = limit !== null ? limit - currentDebt : null;
+        const sonEkstreBorcu = updated.sonEkstreBorcu !== null && updated.sonEkstreBorcu !== undefined 
+          ? Number(updated.sonEkstreBorcu) 
+          : 0;
+
+
+        results.push({
+          id: updated.id,
+          name: updated.name,
+          bankId: updated.bankId,
+          limit,
+          closingDay: updated.closingDay,
+          dueDay: updated.dueDay,
+          sonEkstreBorcu,
+          manualGuncelBorc,
+          isActive: updated.isActive,
+          createdAt: updated.createdAt.toISOString(),
+          createdBy: updated.createdBy,
+          updatedAt: updated.updatedAt?.toISOString() || null,
+          updatedBy: updated.updatedBy || null,
+          deletedAt: updated.deletedAt?.toISOString() || null,
+          deletedBy: updated.deletedBy || null,
+          currentDebt,
+          availableLimit,
+          lastOperationDate,
+          bank: updated.bank || null,
+        });
+      }
+    }
+
+    
+    return results;
+  }
+
+  /**
+   * Soft delete a credit card
+   */
+  async softDeleteCreditCard(id: string, deletedBy: string): Promise<void> {
+    const card = await prisma.creditCard.findUnique({
+      where: { id },
+    });
+
+    if (!card || card.deletedAt) {
+      throw new Error('Credit card not found');
+    }
+
+    await prisma.creditCard.update({
+      where: { id },
+      data: {
+        deletedAt: new Date(),
+        deletedBy,
+      },
+    });
+  }
 }
+

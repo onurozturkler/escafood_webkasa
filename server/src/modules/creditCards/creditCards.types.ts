@@ -5,8 +5,8 @@ export interface CreditCardDto {
   name: string;
   bankId: string | null;
   limit: number | null;
-  sonEkstreBorcu: number;
-  manualGuncelBorc: number | null;
+  sonEkstreBorcu: number; // Last statement balance (from DB)
+  manualGuncelBorc: number | null; // Manual current debt override (null = calculate from operations)
   closingDay: number | null;
   dueDay: number | null;
   isActive: boolean;
@@ -17,7 +17,8 @@ export interface CreditCardDto {
   deletedAt: string | null;
   deletedBy: string | null;
   // Computed fields
-  currentDebt: number;
+  currentDebt: number; // Calculated: manualGuncelBorc ?? (sum of operations)
+  availableLimit: number | null;
   lastOperationDate: string | null;
   // Relations (optional, populated when needed)
   bank?: {
@@ -97,6 +98,25 @@ export interface ExpenseResponse {
     description: string | null;
     displayOutgoing: number | null;
   };
+  // CRITICAL FIX: Include updated credit card in response
+  creditCard: {
+    id: string;
+    name: string;
+    bankId: string | null;
+    limit: number | null;
+    closingDay: number | null;
+    dueDay: number | null;
+    sonEkstreBorcu: number;
+    manualGuncelBorc: number | null;
+    isActive: boolean;
+    currentDebt: number;
+    availableLimit: number | null;
+    lastOperationDate: string | null;
+    bank: {
+      id: string;
+      name: string;
+    } | null;
+  };
 }
 
 export interface PaymentResponse {
@@ -112,5 +132,24 @@ export interface PaymentResponse {
     bankId: string | null;
     bankDelta: number;
     outgoing: number;
+  };
+  // CRITICAL FIX: Include updated credit card in response (same as ExpenseResponse)
+  creditCard: {
+    id: string;
+    name: string;
+    bankId: string | null;
+    limit: number | null;
+    closingDay: number | null;
+    dueDay: number | null;
+    sonEkstreBorcu: number;
+    manualGuncelBorc: number | null;
+    isActive: boolean;
+    currentDebt: number;
+    availableLimit: number | null;
+    lastOperationDate: string | null;
+    bank: {
+      id: string;
+      name: string;
+    } | null;
   };
 }

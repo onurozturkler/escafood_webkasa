@@ -7,9 +7,13 @@ import {
   kasaDefteriQuerySchema,
   nakitAkisQuerySchema,
 } from './reports.validation';
+import { authMiddleware } from '../auth/auth.middleware';
 import { z } from 'zod';
 
 const router = Router();
+
+// All report routes require authentication
+router.use(authMiddleware);
 
 /**
  * Validation middleware for query params
@@ -23,7 +27,7 @@ function validateQuery(schema: z.ZodSchema) {
       if (error instanceof z.ZodError) {
         res.status(400).json({
           message: 'Validation error',
-          errors: error.errors,
+          errors: error.issues,
         });
         return;
       }

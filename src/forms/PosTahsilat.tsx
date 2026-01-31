@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import Modal from '../components/ui/Modal';
 import { PosTerminal } from '../models/pos';
 import { BankMaster } from '../models/bank';
 import { Customer } from '../models/customer';
@@ -142,16 +143,32 @@ export default function PosTahsilat({
     });
   };
 
-  if (!isOpen) return null;
+  const footer = (
+    <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3">
+      <button
+        className="px-4 py-2 bg-slate-200 rounded-lg hover:bg-slate-300 transition-colors w-full sm:w-auto"
+        onClick={handleClose}
+      >
+        İptal
+      </button>
+      <button
+        className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors w-full sm:w-auto"
+        onClick={handleSave}
+      >
+        Kaydet
+      </button>
+    </div>
+  );
 
   return (
-    <div className="modal-backdrop">
-      <div className="modal">
-        <div className="flex items-center justify-between mb-4">
-          <div className="text-lg font-semibold">POS Tahsilat</div>
-          <button onClick={handleClose}>✕</button>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      title="POS Tahsilat"
+      size="lg"
+      footer={footer}
+    >
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FormRow label="İşlem Tarihi" required>
             <DateInput
               value={islemTarihiIso}
@@ -244,15 +261,6 @@ export default function PosTahsilat({
             <input className="form-input" value={currentUserEmail} readOnly />
           </FormRow>
         </div>
-        <div className="flex justify-end space-x-3 mt-6">
-          <button className="px-4 py-2 bg-slate-200 rounded-lg" onClick={handleClose}>
-            İptal
-          </button>
-          <button className="px-4 py-2 bg-indigo-600 text-white rounded-lg" onClick={handleSave}>
-            Kaydet
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

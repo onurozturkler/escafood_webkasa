@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import Modal from '../components/ui/Modal';
 
 interface Props {
   isOpen: boolean;
@@ -17,29 +18,27 @@ export default function EpostaLogsModal({ isOpen, onClose }: Props) {
     onClose();
   };
 
-  if (!isOpen) return null;
   return (
-    <div className="modal-backdrop">
-      <div className="modal max-w-lg">
-        <div className="flex items-center justify-between mb-4">
-          <div className="text-lg font-semibold">E-posta Logs</div>
-          <button onClick={handleClose}>✕</button>
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      title="E-posta Logs"
+      size="sm"
+    >
+      <div className="space-y-2 text-sm">
+        <div className="flex justify-between items-center border-b border-slate-200 pb-2">
+          <span className="font-medium">25.11.2025</span>
+          <span className="text-slate-500">Ekstre Gönderimi</span>
         </div>
-        <div className="space-y-2 text-sm">
-          <div className="flex justify-between border-b pb-2">
-            <span>25.11.2025</span>
-            <span className="text-slate-500">Ekstre Gönderimi</span>
-          </div>
-          <div className="flex justify-between border-b pb-2">
-            <span>18.11.2025</span>
-            <span className="text-slate-500">Tahsilat Hatırlatması</span>
-          </div>
-          <div className="flex justify-between border-b pb-2">
-            <span>10.11.2025</span>
-            <span className="text-slate-500">Kullanıcı Daveti</span>
-          </div>
+        <div className="flex justify-between items-center border-b border-slate-200 pb-2">
+          <span className="font-medium">18.11.2025</span>
+          <span className="text-slate-500">Tahsilat Hatırlatması</span>
+        </div>
+        <div className="flex justify-between items-center border-b border-slate-200 pb-2">
+          <span className="font-medium">10.11.2025</span>
+          <span className="text-slate-500">Kullanıcı Daveti</span>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

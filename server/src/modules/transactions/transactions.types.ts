@@ -8,6 +8,7 @@ export interface TransactionDto {
   source: DailyTransactionSource;
   counterparty: string | null;
   description: string | null;
+  category: string | null;
   incoming: number;
   outgoing: number;
   bankDelta: number;
@@ -21,12 +22,27 @@ export interface TransactionDto {
   customerId: string | null;
   supplierId: string | null;
   attachmentId: string | null;
+  loanInstallmentId: string | null;
+  transferGroupId: string | null;
   createdAt: string;
-  createdBy: string;
+  createdBy: string; // KULLANICI / AUTH / AUDIT - 7.1: createdByUserId (User.id)
+  createdByEmail: string; // KULLANICI / AUTH / AUDIT - 7.1: createdByEmail (UI'da email gösterilir, x-user-id ASLA gösterilmez)
   updatedAt: string | null;
   updatedBy: string | null;
   deletedAt: string | null;
   deletedBy: string | null;
+  // Cheque information (populated when chequeId is present)
+  cheque?: {
+    id: string;
+    cekNo: string;
+    drawerName: string;
+    payeeName: string;
+    issuerBankName: string;
+  } | null;
+  // Attachment information (populated when attachmentId is present)
+  attachmentType?: 'POS_SLIP' | 'CHEQUE' | null;
+  attachmentImageDataUrl?: string | null;
+  attachmentImageName?: string | null;
 }
 
 export interface CreateTransactionDto {
@@ -36,6 +52,7 @@ export interface CreateTransactionDto {
   source: DailyTransactionSource;
   counterparty?: string | null;
   description?: string | null;
+  category?: string | null;
   incoming?: number;
   outgoing?: number;
   bankDelta?: number;
@@ -47,7 +64,8 @@ export interface CreateTransactionDto {
   chequeId?: string | null;
   customerId?: string | null;
   supplierId?: string | null;
-  attachmentId?: string | null;
+  attachmentId?: string | null; // Attachment ID (upload via /api/attachments first)
+  loanInstallmentId?: string | null;
 }
 
 export interface UpdateTransactionDto {
@@ -57,6 +75,7 @@ export interface UpdateTransactionDto {
   source?: DailyTransactionSource;
   counterparty?: string | null;
   description?: string | null;
+  category?: string | null;
   incoming?: number;
   outgoing?: number;
   bankDelta?: number;
@@ -69,6 +88,7 @@ export interface UpdateTransactionDto {
   customerId?: string | null;
   supplierId?: string | null;
   attachmentId?: string | null;
+  loanInstallmentId?: string | null;
 }
 
 export interface TransactionListQuery {
@@ -82,6 +102,7 @@ export interface TransactionListQuery {
   bankId?: string;
   creditCardId?: string;
   createdBy?: string;
+  createdByEmail?: string; // Filter by user email (for UI filtering)
   search?: string;
   sortKey?: 'isoDate' | 'documentNo' | 'type' | 'counterparty' | 'incoming' | 'outgoing' | 'balanceAfter';
   sortDir?: 'asc' | 'desc';
@@ -92,5 +113,7 @@ export interface TransactionListQuery {
 export interface TransactionListResponse {
   items: TransactionDto[];
   totalCount: number;
+  totalIncoming: number;
+  totalOutgoing: number;
 }
 

@@ -4,32 +4,31 @@ import {
   getTransactionSourceLabel,
   getTransactionTypeLabel,
 } from '../models/transaction';
-import { BankMaster } from '../models/bank';
-import { isoToDisplay } from '../utils/date';
+import { isoToDisplay, todayIso } from '../utils/date';
 import { formatTl } from '../utils/money';
 import { HomepageIcon } from '../components/HomepageIcon';
 import { apiGet } from '../utils/api';
+import { printReport } from '../utils/pdfExport';
+import { resolveDisplayAmounts } from '../utils/transactionDisplay';
 
 interface KasaDefteriViewProps {
   onBackToDashboard: () => void;
-  banks: BankMaster[];
 }
 
-type SortKey =
-  | 'isoDate'
-  | 'documentNo'
-  | 'type'
-  | 'counterparty'
-  | 'incoming'
-  | 'outgoing'
-  | 'balanceAfter';
+// Fix Bug 5: Helper to get bank name from transaction (prefer bankName from backend, fallback to local lookup)
+function getBankName(tx: DailyTransaction, banks: Array<{ id: string; name: string }>): string | null {
+  // Prefer bankName from backend if available
+  if ((tx as any).bankName) return (tx as any).bankName;
+  // Fallback to local lookup
+  if (!tx.bankId) return null;
+  const bank = banks.find((b) => b.id === tx.bankId);
+  return bank?.name || null;
+}
+
+type SortKey = 'isoDate' | 'documentNo' | 'type' | 'counterparty' | 'incoming' | 'outgoing' | 'balanceAfter';
 type SortDir = 'asc' | 'desc';
 
 type QuickRange = 'NONE' | 'TODAY' | 'WEEK' | 'MONTH' | 'YEAR';
-
-function todayIsoLocal() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function getWeekRange(today: Date) {
   const day = today.getDay();
@@ -63,24 +62,53 @@ const sorters: Record<SortKey, (a: DailyTransaction, b: DailyTransaction) => num
   balanceAfter: (a, b) => a.balanceAfter - b.balanceAfter,
 };
 
-export default function KasaDefteriView({ onBackToDashboard, banks }: KasaDefteriViewProps) {
+export default function KasaDefteriView({ onBackToDashboard }: KasaDefteriViewProps) {
   const [transactions, setTransactions] = useState<DailyTransaction[]>([]);
+  const [banks, setBanks] = useState<Array<{ id: string; name: string }>>([]); // Fix Bug 4: Banks for bank name display
   const [loading, setLoading] = useState(true);
-  const [filterStartIso, setFilterStartIso] = useState('');
-  const [filterEndIso, setFilterEndIso] = useState('');
+  
+  // RAPOR DEFAULT DAVRANIŞLARI - 6: Kasa Defteri → Bu Ay (ayın başı → bugün)
+  const today = todayIso();
+  const monthStart = (() => {
+    const [y, m] = today.split('-');
+    return `${y}-${m}-01`;
+  })();
+  
+  const [filterStartIso, setFilterStartIso] = useState(monthStart);
+  const [filterEndIso, setFilterEndIso] = useState(today);
   const [filterDocumentNo, setFilterDocumentNo] = useState('');
   const [filterType, setFilterType] = useState('');
   const [filterCounterparty, setFilterCounterparty] = useState('');
   const [filterDescription, setFilterDescription] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('isoDate');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
-  const [quickRange, setQuickRange] = useState<QuickRange>('NONE');
+  const [quickRange, setQuickRange] = useState<QuickRange>('MONTH'); // RAPOR DEFAULT DAVRANIŞLARI - 6: Default to current month
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [previewTitle, setPreviewTitle] = useState('');
   const [openingBalance, setOpeningBalance] = useState(0);
   const [closingBalance, setClosingBalance] = useState(0);
   const [totalIncoming, setTotalIncoming] = useState(0);
   const [totalOutgoing, setTotalOutgoing] = useState(0);
+
+  // Fix Bug 4: Fetch banks for bank name display
+  useEffect(() => {
+    const fetchBanks = async () => {
+      try {
+        const backendBanks = await apiGet<Array<{
+          id: string;
+          name: string;
+          accountNo: string | null;
+          iban: string | null;
+          isActive: boolean;
+          currentBalance: number;
+        }>>('/api/banks');
+        setBanks(backendBanks.map((b) => ({ id: b.id, name: b.name })));
+      } catch (error) {
+        console.error('Failed to fetch banks:', error);
+      }
+    };
+    fetchBanks();
+  }, []);
 
   // Fetch transactions from backend
   useEffect(() => {
@@ -128,24 +156,30 @@ export default function KasaDefteriView({ onBackToDashboard, banks }: KasaDefter
           closingBalance: number;
         }>(`/api/reports/kasa-defteri?${params.toString()}`);
 
-        // Map backend response to frontend format
-        const mapped = response.items.map((tx) => ({
-          id: tx.id,
-          isoDate: tx.isoDate,
-          displayDate: isoToDisplay(tx.isoDate),
-          documentNo: tx.documentNo || '',
-          type: tx.type,
-          source: tx.source,
-          counterparty: tx.counterparty || '',
-          description: tx.description || '',
-          incoming: tx.incoming,
-          outgoing: tx.outgoing,
-          balanceAfter: tx.balanceAfter, // Use balanceAfter from backend
-          bankId: tx.bankId || undefined,
-          bankDelta: tx.bankDelta,
-          displayIncoming: tx.displayIncoming ?? undefined,
-          displayOutgoing: tx.displayOutgoing ?? undefined,
-        }));
+        // Fix Bug 4 & 5: Map backend response to frontend format, include bank and credit card info
+        const mapped = response.items.map((tx: any) => {
+          // Debug logging removed - attachmentId is sufficient
+          return {
+            id: tx.id,
+            isoDate: tx.isoDate,
+            displayDate: isoToDisplay(tx.isoDate),
+            documentNo: tx.documentNo || '',
+            type: tx.type,
+            source: tx.source,
+            counterparty: tx.counterparty || '',
+            description: tx.description || '',
+            incoming: tx.incoming,
+            outgoing: tx.outgoing,
+            balanceAfter: tx.balanceAfter, // Use balanceAfter from backend
+            bankId: tx.bankId || undefined, // Fix Bug 4: Include bankId from backend
+            bankName: tx.bankName || undefined, // Fix Bug 5: Use bankName from backend
+            creditCardId: tx.creditCardId || undefined, // Fix Bug 5: Include creditCardId
+            bankDelta: tx.bankDelta !== null && tx.bankDelta !== undefined ? tx.bankDelta : undefined, // Include bankDelta for bank transfer tracking
+            displayIncoming: tx.displayIncoming ?? undefined, // BUG 2 FIX: Use displayIncoming from backend for bank cash in
+            displayOutgoing: tx.displayOutgoing ?? undefined, // BUG 2 FIX: Use displayOutgoing from backend for bank cash out
+            attachmentId: tx.attachmentId ?? undefined, // Use ?? to preserve null
+          };
+        });
 
         setTransactions(mapped);
         setOpeningBalance(response.openingBalance);
@@ -180,21 +214,11 @@ export default function KasaDefteriView({ onBackToDashboard, banks }: KasaDefter
     return formatTl(value);
   };
 
-  const resolveBankName = (bankId?: string) => banks.find((b) => b.id === bankId)?.bankaAdi || '-';
-
-  const renderCreated = (tx: DailyTransaction) => {
-    if (tx.createdAtIso && tx.createdBy) {
-      const datePart = isoToDisplay(tx.createdAtIso.slice(0, 10));
-      const timePart = tx.createdAtIso.slice(11, 19);
-      return `${datePart} ${timePart} – ${tx.createdBy}`;
-    }
-    return '-';
-  };
 
   const applyQuickRange = (range: QuickRange) => {
     const today = new Date();
     if (range === 'TODAY') {
-      const iso = todayIsoLocal();
+      const iso = todayIso();
       setFilterStartIso(iso);
       setFilterEndIso(iso);
     } else if (range === 'WEEK') {
@@ -241,7 +265,7 @@ export default function KasaDefteriView({ onBackToDashboard, banks }: KasaDefter
             <img
               src="https://esca-food.com/image/cache/catalog/esca%20food%20logosu%20tek_-700x800.png"
               alt="Esca Food"
-              className="h-[84px] object-contain"
+              className="h-[118px] object-contain"
             />
             <img
               src="https://esca-food.com/image/cache/catalog/web%20kasa%20logosu%20tek_-700x800.png"
@@ -261,8 +285,11 @@ export default function KasaDefteriView({ onBackToDashboard, banks }: KasaDefter
               <HomepageIcon className="w-4 h-4" />
               <span>Ana Sayfaya Dön</span>
             </button>
-            <button className="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700" onClick={() => window.print()}>
-              PDF'e Aktar / Yazdır
+            <button
+              className="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-medium"
+              onClick={() => printReport()}
+            >
+              📄 PDF / Döküm Al
             </button>
           </div>
         </div>
@@ -355,7 +382,6 @@ export default function KasaDefteriView({ onBackToDashboard, banks }: KasaDefter
               <th className="py-2 px-2 text-right cursor-pointer" onClick={() => toggleSort('balanceAfter')}>
                 Bakiye
               </th>
-              <th className="py-2 px-2 text-left">Kaydedildi</th>
             </tr>
           </thead>
           <tbody>
@@ -367,38 +393,55 @@ export default function KasaDefteriView({ onBackToDashboard, banks }: KasaDefter
               </tr>
             )}
             {sortedTransactions.map((tx) => {
-              const incomingVal =
-                tx.displayIncoming ?? tx.incoming ?? (tx.bankDelta && tx.bankDelta > 0 ? tx.bankDelta : 0);
-              const outgoingVal =
-                tx.displayOutgoing ?? tx.outgoing ?? (tx.bankDelta && tx.bankDelta < 0 ? Math.abs(tx.bankDelta) : 0);
+              const { giris, cikis } = resolveDisplayAmounts(tx);
               return (
                 <tr key={tx.id} className="border-b last:border-0">
                   <td className="py-2 px-2">{tx.displayDate}</td>
                   <td className="py-2 px-2">{tx.documentNo}</td>
                   <td className="py-2 px-2">{getTransactionTypeLabel(tx.type)}</td>
                   <td className="py-2 px-2">{getTransactionSourceLabel(tx.source)}</td>
-                  <td className="py-2 px-2">{tx.bankId ? resolveBankName(tx.bankId) : '-'}</td>
+                  <td className="py-2 px-2">{getBankName(tx, banks) || '-'}</td>
                   <td className="py-2 px-2">{tx.counterparty}</td>
-                  <td className="py-2 px-2">{tx.description}</td>
                   <td className="py-2 px-2">
-                    {tx.attachmentType === 'POS_SLIP' && tx.attachmentImageDataUrl ? (
+                    {tx.description}
+                    {tx.bankDelta !== null && tx.bankDelta !== undefined && tx.bankDelta !== 0 && (
+                      <span className="text-xs text-slate-500 block mt-1">
+                        {tx.bankDelta > 0 ? 'Banka girişi' : 'Banka çıkışı'}: {formatTl(Math.abs(tx.bankDelta))}
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-2 px-2">
+                    {tx.attachmentId != null ? ( // != null checks for both null and undefined
                       <button
-                        className="text-xs text-blue-600 underline"
-                        onClick={() => {
-                          setPreviewImageUrl(tx.attachmentImageDataUrl || null);
-                          setPreviewTitle(tx.attachmentImageName || 'POS Slip');
+                        className="text-xs text-blue-600 underline hover:text-blue-800 font-medium"
+                        onClick={async () => {
+                          if (!tx.attachmentId) return;
+                          try {
+                            const attachment = await apiGet<{
+                              id: string;
+                              fileName: string;
+                              mimeType: string;
+                              imageDataUrl: string;
+                              createdAt: string;
+                              createdBy: string | null;
+                            }>(`/api/attachments/${tx.attachmentId}`);
+                            setPreviewImageUrl(attachment.imageDataUrl);
+                            setPreviewTitle(attachment.fileName || 'Belge');
+                          } catch (error: any) {
+                            console.error('Failed to fetch attachment:', error);
+                            alert(`Görsel yüklenemedi: ${error?.message || 'Bilinmeyen hata'}`);
+                          }
                         }}
                       >
-                        Slip
+                        Görüntüle
                       </button>
                     ) : (
                       '-'
                     )}
                   </td>
-                  <td className="py-2 px-2 text-right text-emerald-600">{renderMoney(incomingVal)}</td>
-                  <td className="py-2 px-2 text-right text-rose-600">{renderMoney(outgoingVal)}</td>
+                  <td className="py-2 px-2 text-right text-emerald-600">{giris !== null ? renderMoney(giris) : '-'}</td>
+                  <td className="py-2 px-2 text-right text-rose-600">{cikis !== null ? renderMoney(cikis) : '-'}</td>
                   <td className="py-2 px-2 text-right font-semibold">{renderMoney(tx.balanceAfter)}</td>
-                  <td className="py-2 px-2 text-left">{renderCreated(tx)}</td>
                 </tr>
               );
             })}

@@ -4,20 +4,24 @@ import {
   getCreditCard,
   createCreditCard,
   updateCreditCard,
+  deleteCreditCard,
   createExpense,
   createPayment,
-  bulkSaveCreditCards,
+  bulkSave,
 } from './creditCards.controller';
 import {
   createCreditCardSchema,
   updateCreditCardSchema,
   createExpenseSchema,
   createPaymentSchema,
-  bulkSaveSchema,
 } from './creditCards.validation';
+import { authMiddleware } from '../auth/auth.middleware';
 import { z } from 'zod';
 
 const router = Router();
+
+// All credit card routes require authentication
+router.use(authMiddleware);
 
 /**
  * Validation middleware
@@ -31,7 +35,7 @@ function validate(schema: z.ZodSchema) {
       if (error instanceof z.ZodError) {
         res.status(400).json({
           message: 'Validation error',
-          errors: error.errors,
+          errors: error.issues,
         });
         return;
       }
@@ -44,11 +48,13 @@ function validate(schema: z.ZodSchema) {
  * Routes
  */
 router.get('/', listCreditCards);
-router.post('/bulk-save', validate(bulkSaveSchema), bulkSaveCreditCards);
 router.post('/', validate(createCreditCardSchema), createCreditCard);
+router.post('/bulk-save', bulkSave);
 router.get('/:id', getCreditCard);
 router.put('/:id', validate(updateCreditCardSchema), updateCreditCard);
+router.delete('/:id', deleteCreditCard);
 router.post('/expense', validate(createExpenseSchema), createExpense);
 router.post('/payment', validate(createPaymentSchema), createPayment);
 
 export default router;
+

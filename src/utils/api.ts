@@ -1,24 +1,84 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 
+/**
+ * Get JWT token from localStorage
+ */
+function getAuthToken(): string | null {
+  return localStorage.getItem('esca-webkasa-token');
+}
+
 export async function apiRequest<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`;
+  const token = getAuthToken();
+  
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...options.headers,
+  };
+  
+  // Add Authorization header if token is available
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
   const response = await fetch(url, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
+    headers,
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Request failed' }));
-    throw new Error(error.message || `HTTP ${response.status}`);
+    let errorData: any;
+    try {
+      errorData = await response.json();
+    } catch {
+      errorData = { message: `HTTP ${response.status}: ${response.statusText}` };
+    }
+    console.error('apiRequest - error response:', {
+      status: response.status,
+      statusText: response.statusText,
+      errorData,
+      url,
+    });
+    // Log detailed error information
+    if (errorData) {
+      console.error('Error details:', {
+        message: errorData.message,
+        error: errorData.error,
+        code: errorData.code,
+        details: errorData.details,
+        stack: errorData.stack,
+      });
+    }
+    
+    // Extract validation error details if available
+    let errorMessage = errorData.message || errorData.error || `HTTP ${response.status}`;
+    if (errorData.details && Array.isArray(errorData.details)) {
+      const validationErrors = errorData.details.map((issue: any) => {
+        const path = issue.path?.join('.') || 'unknown';
+        return `${path}: ${issue.message || 'Validation error'}`;
+      }).join(', ');
+      if (validationErrors) {
+        errorMessage = `Validation error: ${validationErrors}`;
+      }
+    }
+    
+    const error = new Error(errorMessage);
+    (error as any).response = { status: response.status, data: errorData };
+    throw error;
   }
 
-  return response.json();
+  const jsonData = await response.json();
+  console.log('apiRequest - success response:', {
+    url,
+    data: jsonData,
+    dataType: typeof jsonData,
+    isArray: Array.isArray(jsonData),
+    length: Array.isArray(jsonData) ? jsonData.length : 'N/A',
+  });
+  return jsonData;
 }
 
 export function apiGet<T>(endpoint: string): Promise<T> {
